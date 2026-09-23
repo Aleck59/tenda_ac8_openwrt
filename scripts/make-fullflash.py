@@ -9,9 +9,13 @@ an external programmer (CH341A + flashrom):
     last 128 KiB        copied from the backup when the chip size is
                         unchanged (Tenda config), otherwise left erased
 
-Without --backup the boot loader area is left erased (0xFF).  Such an
-image must only be written region-wise, so that the boot loader already
-on the chip is kept:
+Instead of a full backup, --boot takes just the 128 KiB boot area
+(dd if=backup.bin of=boot.bin bs=64k count=2); the image then contains
+the boot loader and can be written to a blank chip as a whole.
+
+Without --backup/--boot the boot loader area is left erased (0xFF).
+Such an image must only be written region-wise, so that the boot loader
+already on the chip is kept:
 
     flashrom -p ch341a_spi -l IMAGE.layout -i firmware -w IMAGE
 
@@ -22,6 +26,9 @@ Examples:
     make-fullflash.py --backup ac8-stock.bin \\
         --firmware openwrt-realtek-rtl8197f-tenda_ac8-v1-8m-squashfs-flash.bin \\
         --size 8M --output ac8-openwrt-8m-full.bin
+    make-fullflash.py --boot boot/tenda_ac8-v1-boot.bin \\
+        --firmware openwrt-realtek-rtl8197f-tenda_ac8-v1-8m-squashfs-flash.bin \\
+        --size 8M --output ac8-openwrt-8m-fullflash.bin
     make-fullflash.py \\
         --firmware openwrt-realtek-rtl8197f-tenda_ac8-v1-8m-squashfs-flash.bin \\
         --size 8M --output ac8-openwrt-8m-firmware-region.bin
@@ -67,6 +74,14 @@ def check_backup(backup: bytes, force: bool) -> bytes:
     return stock_sig
 
 
+def check_boot(boot: bytes) -> None:
+    if len(boot) != BOOT_SIZE:
+        die(f"boot area is {len(boot)} bytes, expected exactly {BOOT_SIZE} "
+            "(first 128 KiB of the dump)")
+    if boot == b"\xff" * BOOT_SIZE or boot == b"\x00" * BOOT_SIZE:
+        die("boot area is empty")
+
+
 def check_firmware(firmware: bytes):
     sig, start, burn, length = struct.unpack(">4sIII", firmware[:16])
     if sig not in SIGNATURES:
@@ -83,7 +98,9 @@ def check_firmware(firmware: bytes):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--backup", help="full dump of the stock flash chip (recommended)")
+    src = ap.add_mutually_exclusive_group()
+    src.add_argument("--backup", help="full dump of the stock flash chip (recommended)")
+    src.add_argument("--boot", help="only the 128 KiB boot area of the dump")
     ap.add_argument("--firmware", required=True, help="OpenWrt *-squashfs-flash.bin")
     ap.add_argument("--size", required=True, choices=sorted(SIZES), help="size of the target chip")
     ap.add_argument("--output", required=True)
@@ -108,6 +125,10 @@ def main() -> None:
         image[:BOOT_SIZE] = backup[:BOOT_SIZE]
         if len(backup) == size:
             image[size - CONFIG_SIZE:] = backup[size - CONFIG_SIZE:]
+    elif args.boot:
+        boot = open(args.boot, "rb").read()
+        check_boot(boot)
+        image[:BOOT_SIZE] = boot
 
     with open(args.output, "wb") as f:
         f.write(image)
@@ -119,6 +140,8 @@ def main() -> None:
 
     if stock_sig:
         print(f"stock header : {stock_sig.decode(errors='replace')} at 0x{BOOT_SIZE:x}")
+    elif args.boot:
+        print(f"boot loader  : from {args.boot}")
     else:
         print("boot loader  : NOT included (erased); write only the 'firmware' region")
     print(f"firmware     : {sig.decode()} start=0x{start:08x} burn=0x{burn:x} "

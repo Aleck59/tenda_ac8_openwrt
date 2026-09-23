@@ -26,6 +26,7 @@ on:
       - "scripts/prepare.sh"
       - "scripts/configure.sh"
       - "scripts/make-fullflash.py"
+      - "boot/**"
 
 permissions:
   contents: write
@@ -111,6 +112,15 @@ jobs:
             esac
             python3 scripts/make-fullflash.py --firmware "$fw" --size "$size" \
               --output "${fw%-squashfs-flash.bin}-programmer-firmware-region.bin"
+            # Full chip image with the owner's boot loader (first 128 KiB of
+            # the stock dump), only when it has been added to the repository.
+            if [ -f boot/tenda_ac8-v1-boot.bin ]; then
+              python3 scripts/make-fullflash.py --boot boot/tenda_ac8-v1-boot.bin \
+                --firmware "$fw" --size "$size" \
+                --output "${fw%-squashfs-flash.bin}-fullflash.bin"
+            else
+              echo "::notice::boot/tenda_ac8-v1-boot.bin is not in the repository, no fullflash image for $dev"
+            fi
           done
           (cd out && sha256sum *.bin > sha256sums)
           ls -l out

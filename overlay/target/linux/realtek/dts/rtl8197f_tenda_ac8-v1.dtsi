@@ -11,10 +11,17 @@
  *   - the firmware carries RTL8812F PHY tables and rtl8367b/rtl8367c
  *     switch helpers.
  *
+ * Verified by a boot log from a real AC8 v1 with an 8 MiB chip:
+ *   - the boot loader starts the cs6c image at 0x20000 (loader at
+ *     0x80a00000, relocated to 0x81000000);
+ *   - RTL8367RB-VB (id 0x6367, ver 0x0020) answers on SMI with
+ *     MDC = GPIO H0 = 56, MDIO = GPIO G7 = 55, CPU port link comes up;
+ *   - byte reads through the SPI auto-map window are NOT shifted (raw
+ *     bytes at 0x60000/0x350000 match the flashed image), unlike RD05.
+ *
  * NOT verified on hardware (taken from the Tenda AC23 profile of the
  * RTL8197F port, which uses the same RTL8197FH + RTL8367RB design):
- *   - RTL8367RB SMI pins (MDC = GPIO H0 = 56, MDIO = GPIO G7 = 55);
- *   - CPU port 6 (EXT1, RGMII) and the RGMII delays;
+ *   - CPU port 6 (EXT1, RGMII) and the RGMII delays under traffic;
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
  *   - LED and button GPIOs (left disabled);
@@ -137,7 +144,12 @@
 &spirom0 {
 	status = "okay";
 	erase-size = <0x10000>;
-	realtek,read-shift = <1>;
+	/*
+	 * No read shift on the AC8: with the RD05 value of 1 every read was
+	 * off by one byte, the rtl8197f-fw parser saw "\xffcs6" instead of
+	 * the cs6c header and no rootfs partition was created.
+	 */
+	realtek,read-shift = <0>;
 
 	/*
 	 * Writable flash is intentionally not enabled.  After the board has
