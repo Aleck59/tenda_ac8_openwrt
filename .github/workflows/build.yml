@@ -77,17 +77,42 @@ jobs:
             dl-${{ hashFiles('base.env', 'configs/**', 'patches/**') }}-
             dl-
 
+      # Host tools and the cross toolchain take ~35 of the ~55 minutes and
+      # depend only on the pinned base tree, so they are reused between runs.
+      - name: Cache tools and toolchain
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/staging_dir/host
+            openwrt/staging_dir/toolchain-*
+          key: toolchain-${{ runner.os }}-${{ hashFiles('base.env', 'configs/**') }}
+
+      # A fresh checkout makes every source file newer than the cached build
+      # stamps; touch them so make treats the restored tools as up to date.
+      # Only plain "make" honours these stamps: an explicit
+      # "make tools/install" rebuilds every tool, so that step is skipped.
+      - name: Mark cached tools and toolchain as built
+        if: steps.cache-toolchain.outputs.cache-hit == 'true'
+        working-directory: openwrt
+        run: find staging_dir/host/stamp staging_dir/toolchain-*/stamp -type f -exec touch {} +
+
       - name: Download sources
         working-directory: openwrt
         run: make download -j8 || make download -j1 V=s
 
       - name: Build tools and toolchain
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
         working-directory: openwrt
-        run: make -j"$(nproc)" tools/install toolchain/install || make -j1 V=s tools/install toolchain/install
+        run: |
+          echo "CPU cores: $(nproc), RAM: $(free -g | awk '/Mem:/ {print $2}') GiB"
+          make -j"$(nproc)" tools/install toolchain/install || make -j1 V=s tools/install toolchain/install
 
       - name: Build firmware
         working-directory: openwrt
-        run: make -j"$(nproc)" || make -j1 V=s
+        run: |
+          echo "CPU cores: $(nproc), toolchain from cache: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}"
+          make -j"$(nproc)" || make -j1 V=s
 
       - name: Collect images
         id: collect
