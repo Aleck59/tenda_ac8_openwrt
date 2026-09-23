@@ -1,0 +1,28 @@
+Subject: [PATCH] rtl8192cd-rtl8197f: fix build without 8198F/8814B
+
+TxLMT_OFDM_Jaguar_NEW() programs the 3SS/4SS HT power limits of the
+RTL8812F with txpwr_lmt_HT3S/HT4S and lmt_pg_idx_ht3s/ht4s, which only
+exist when 8198F or 8814B support is built.  The 8812F is a 2T2R chip,
+so skip those blocks otherwise.
+
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/src/WlanHAL/RTL88XX/Hal88XXPhyCfg.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/WlanHAL/RTL88XX/Hal88XXPhyCfg.c
+@@ -1167,7 +1167,7 @@
+ 			if(GET_CHIP_VER(Adapter) == VERSION_8814B)
+ 				phydm_write_txagc_1byte_8814b((&(Adapter->pshare->_dmODM)),config_phydm_read_txagc_diff_8814b((&(Adapter->pshare->_dmODM)),rate)-(unsigned char)*(pTxAgcOffset+rate-TX_AGC_HT_NSS1_MCS0)+POWER_MIN_CHECK((unsigned char)*(pTxAgcOffset+rate-TX_AGC_HT_NSS1_MCS0),lmt_pg_idx_ht3s),rate);
+ #endif
+-#if IS_RTL8812F_SERIES
++#if IS_RTL8812F_SERIES && (defined(CONFIG_WLAN_HAL_8198F) || defined(CONFIG_WLAN_HAL_8814B)) /* 3/4 SS limits only exist with 8198F/8814B */
+ 			if(GET_CHIP_VER(Adapter) == VERSION_8812F) {
+ 				if (Adapter->pmib->dot11RFEntry.tssi_enable)
+ 					phydm_write_txagc_1byte_8812f((&(Adapter->pshare->_dmODM)), POWER_MIN_CHECK((Adapter->pshare->tgpwr_HT1S_NEW + (unsigned char)*(pTxAgcOffset+rate-TX_AGC_HT_NSS1_MCS0)), Adapter->pshare->txpwr_lmt_HT3S) - tssi_lmt, rate);
+@@ -1187,7 +1187,7 @@
+ 			if(GET_CHIP_VER(Adapter) == VERSION_8814B)
+ 				phydm_write_txagc_1byte_8814b((&(Adapter->pshare->_dmODM)),config_phydm_read_txagc_diff_8814b((&(Adapter->pshare->_dmODM)),rate)-(unsigned char)*(pTxAgcOffset+rate-TX_AGC_HT_NSS1_MCS0)+POWER_MIN_CHECK((unsigned char)*(pTxAgcOffset+rate-TX_AGC_HT_NSS1_MCS0),lmt_pg_idx_ht4s),rate);
+ #endif
+-#if IS_RTL8812F_SERIES
++#if IS_RTL8812F_SERIES && (defined(CONFIG_WLAN_HAL_8198F) || defined(CONFIG_WLAN_HAL_8814B)) /* 3/4 SS limits only exist with 8198F/8814B */
+ 			if(GET_CHIP_VER(Adapter) == VERSION_8812F) {
+ 				if (Adapter->pmib->dot11RFEntry.tssi_enable)
+ 					phydm_write_txagc_1byte_8812f((&(Adapter->pshare->_dmODM)), POWER_MIN_CHECK((Adapter->pshare->tgpwr_HT1S_NEW + (unsigned char)*(pTxAgcOffset+rate-TX_AGC_HT_NSS1_MCS0)), Adapter->pshare->txpwr_lmt_HT4S) - tssi_lmt, rate);

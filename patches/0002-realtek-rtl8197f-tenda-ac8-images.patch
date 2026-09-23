@@ -1,0 +1,119 @@
+Subject: [PATCH] realtek: rtl8197f: add Tenda AC8 v1 images
+
+Add the stock 4 MiB layout and the 8/16 MiB flash-mod layouts.  Allow the
+loader link address to be overridden per image so the initramfs loader
+can sit above the decompressed kernel.
+
+---
+--- a/target/linux/realtek/image/Makefile
++++ b/target/linux/realtek/image/Makefile
+@@ -144,11 +144,13 @@
+ endef
+ 
+ # Build the raw self-extracting MIPS LZMA loader expected by RTL8197F boot code.
++# An optional argument overrides the loader link address, e.g. to place the
++# loader of a large initramfs kernel above the decompressed image.
+ define Build/rtl8197f-loader-kernel
+ 	python3 $(TOPDIR)/scripts/rtl8197f-loader-overlap-check.py \
+ 		--lzma "$@" \
+ 		--kernel-loadaddr $(KERNEL_LOADADDR) \
+-		--loader-start $(RTL8197F_LZMA_TEXT_START) \
++		--loader-start $(or $(word 1,$(1)),$(RTL8197F_LZMA_TEXT_START)) \
+ 		--safety-margin 64k \
+ 		--label "$(DEVICE_NAME)"
+ 	rm -rf $@.src
+@@ -156,7 +158,7 @@
+ 		PKG_BUILD_DIR="$@.src" \
+ 		TARGET_DIR="$(dir $@)" \
+ 		LOADER_NAME="$(notdir $@)" \
+-		LZMA_TEXT_START=$(RTL8197F_LZMA_TEXT_START) \
++		LZMA_TEXT_START=$(or $(word 1,$(1)),$(RTL8197F_LZMA_TEXT_START)) \
+ 		LOADADDR=$(KERNEL_LOADADDR) \
+ 		KERNEL_CMDLINE="$(RTL8197F_KERNEL_CMDLINE)" \
+ 		LOADER_DATA="$@" \
+--- a/target/linux/realtek/image/rtl8197f.mk
++++ b/target/linux/realtek/image/rtl8197f.mk
+@@ -172,3 +172,83 @@
+   IMAGE/squashfs-spi-full.bin := append-kernel | rtl8197f-image | append-rtl8197f-rootfs | rtl8197f-firmware-budget | pad-rootfs | rtl8197f-firmware-budget | rtl8197f-tenda-mw5-fullflash
+ endef
+ TARGET_DEVICES += tenda_nova_mw5
++
++
++# Tenda AC8 v1: RTL8197FH + RTL8812FR + RTL8367RB.
++#
++# The stock (eCos) firmware is a "cs6c" image at flash 0x20000, so the
++# Realtek boot loader is expected to copy the header payload to the RAM
++# address from the header and jump there.  OpenWrt uses the same layout:
++#
++#   0x20000: cs6c header | LZMA loader + kernel | checksum | SquashFS
++#
++# The rtl8197f-fw mtdsplit parser finds the SquashFS right after the
++# checksummed payload.  The flash is mapped read-only, so the rootfs
++# overlay lives in RAM.
++#
++# The boot loader copies the payload to the header start address
++# 0x80a00000 (also the usual TFTP load address of Realtek boot loaders).
++# The kernel of this port decompresses to ~9 MiB (0x80100000..0x80a0xxxx),
++# so the LZMA loader is linked higher and first relocates itself: to
++# 0x81000000 for the flash image, to 0x82000000 for the ~24 MiB initramfs
++# kernel.  Both copies go forward by more than the loader size.
++#
++# initramfs-kernel.bin is a raw loader without Realtek header for RAM
++# boot tests: TFTP it to 0x80a00000 and jump there.
++define Device/tenda_ac8-v1-common
++  DEVICE_VENDOR := Tenda
++  DEVICE_MODEL := AC8
++  KERNEL := \
++    kernel-bin | \
++    append-dtb | \
++    lzma | \
++    rtl8197f-loader-kernel
++  KERNEL_INITRAMFS := \
++    kernel-bin | \
++    append-dtb | \
++    lzma | \
++    rtl8197f-loader-kernel 0x82000000
++  BLOCKSIZE := 64k
++  RTL8197F_IMAGE_SIGNATURE := cs6c
++  RTL8197F_LOADADDR := 0x80a00000
++  RTL8197F_LZMA_TEXT_START := 0x81000000
++  RTL8197F_BURNADDR := 0x00020000
++  RTL8197F_HEADER_SIZE := 16
++  RTL8197F_KERNEL_CMDLINE := console=ttyS0,115200n8 lpj=5000000 rootfstype=squashfs clk_ignore_unused
++  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools luci
++  IMAGES := flash.bin
++  IMAGE/flash.bin := \
++    append-kernel | \
++    rtl8197f-image | \
++    append-rootfs | \
++    pad-to 64k | \
++    check-size
++endef
++
++define Device/tenda_ac8-v1
++  $(Device/tenda_ac8-v1-common)
++  DEVICE_VARIANT := v1 (stock 4 MiB flash)
++  DEVICE_DTS := rtl8197f_tenda_ac8-v1
++  # Firmware window 0x020000..0x3e0000.  Meant for RAM boot tests on the
++  # stock chip: flash.bin is dropped by check-size when it does not fit.
++  IMAGE_SIZE := 3840k
++endef
++TARGET_DEVICES += tenda_ac8-v1
++
++define Device/tenda_ac8-v1-8m
++  $(Device/tenda_ac8-v1-common)
++  DEVICE_VARIANT := v1 (8 MiB flash mod)
++  DEVICE_DTS := rtl8197f_tenda_ac8-v1-8m
++  # Firmware window 0x020000..0x7e0000.
++  IMAGE_SIZE := 7936k
++endef
++TARGET_DEVICES += tenda_ac8-v1-8m
++
++define Device/tenda_ac8-v1-16m
++  $(Device/tenda_ac8-v1-common)
++  DEVICE_VARIANT := v1 (16 MiB flash mod)
++  DEVICE_DTS := rtl8197f_tenda_ac8-v1-16m
++  # Firmware window 0x020000..0xfe0000.
++  IMAGE_SIZE := 16128k
++endef
++TARGET_DEVICES += tenda_ac8-v1-16m

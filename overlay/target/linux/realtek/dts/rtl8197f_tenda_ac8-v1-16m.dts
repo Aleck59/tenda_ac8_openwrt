@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+/*
+ * Tenda AC8 v1 with 16 MiB (replaced chip, e.g. W25Q128) SPI-NOR flash.
+ *
+ *   0x000000..0x020000  Realtek boot loader and board data (read-only)
+ *   0x020000..0xfe0000  firmware: cs6c header + loader/kernel + SquashFS
+ *   0xfe0000..0x1000000  Tenda config block (read-only, unverified)
+ */
+
+#include "rtl8197f_tenda_ac8-v1.dtsi"
+
+/ {
+	compatible = "tenda,ac8-v1-16m", "tenda,ac8-v1", "realtek,rtl8197f-vg", "realtek,rtl8197f-soc";
+	model = "Tenda AC8 v1 (16 MiB flash mod)";
+};
+
+&spirom0 {
+	reg = <0x10000000 0x01000000>, <0x00143000 0x1000>;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "boot";
+			reg = <0x00000000 0x00020000>;
+			read-only;
+		};
+
+		/*
+		 * No compatible here: the rtl8197f-fw mtdsplit parser is selected
+		 * by the partition name and splits kernel/rootfs from the cs6c
+		 * header length.
+		 */
+		partition@20000 {
+			label = "firmware";
+			reg = <0x00020000 0x00fc0000>;
+		};
+
+		partition@fe0000 {
+			label = "tenda_config";
+			reg = <0x00fe0000 0x00020000>;
+			read-only;
+		};
+	};
+};

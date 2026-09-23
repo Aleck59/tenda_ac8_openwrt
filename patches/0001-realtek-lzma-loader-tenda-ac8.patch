@@ -1,0 +1,40 @@
+Subject: [PATCH] realtek: lzma-loader: handle Tenda AC8 as an RTL8197F board
+
+Stop the SoC watchdog and use the RTL8197F UART in the loader for every
+tenda_ac8* device.
+
+---
+--- a/target/linux/realtek/image/lzma-loader/src/Makefile
++++ b/target/linux/realtek/image/lzma-loader/src/Makefile
+@@ -76,6 +76,11 @@
+ CFLAGS		+= -DCONFIG_BOARD_$(BOARD_DEF)
+ endif
+ 
++# All Tenda AC8 flash-size variants share one board define.
++ifneq ($(filter tenda_ac8%,$(strip $(BOARD))),)
++CFLAGS		+= -DCONFIG_BOARD_TENDA_AC8
++endif
++
+ all: loader.elf
+ 
+ # Don't build dependencies, this may die if $(CC) isn't gcc
+--- a/target/linux/realtek/image/lzma-loader/src/board.c
++++ b/target/linux/realtek/image/lzma-loader/src/board.c
+@@ -23,6 +23,7 @@
+ #if defined(CONFIG_BOARD_XIAOMI_R4_RD05) || \
+     defined(CONFIG_BOARD_TENDA_NOVA_MW5) || \
+     defined(CONFIG_BOARD_TENDA_AC23) || \
++    defined(CONFIG_BOARD_TENDA_AC8) || \
+     defined(CONFIG_BOARD_REALTEK_RTL8197F_EVB) || \
+     defined(CONFIG_BOARD_REALTEK_RTL8197F_UBOOT_TEST)
+ #define RTL8197F_LOADER 1
+--- a/target/linux/realtek/image/lzma-loader/src/head.S
++++ b/target/linux/realtek/image/lzma-loader/src/head.S
+@@ -34,6 +34,7 @@
+ #if defined(CONFIG_BOARD_XIAOMI_R4_RD05) || \
+     defined(CONFIG_BOARD_TENDA_NOVA_MW5) || \
+     defined(CONFIG_BOARD_TENDA_AC23) || \
++    defined(CONFIG_BOARD_TENDA_AC8) || \
+     defined(CONFIG_BOARD_REALTEK_RTL8197F_EVB) || \
+     defined(CONFIG_BOARD_REALTEK_RTL8197F_UBOOT_TEST)
+ 	/*

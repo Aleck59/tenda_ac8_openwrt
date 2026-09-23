@@ -1,0 +1,180 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+/*
+ * Tenda AC8 v1: RTL8197FH (MIPS 24Kc, 2.4 GHz radio) + RTL8812FR (PCIe,
+ * 5 GHz) + RTL8367RB gigabit switch, SPI-NOR flash.
+ *
+ * Known facts (stock AC8 V2.0 eCos firmware V03.03.10.01, v1 is assumed to
+ * use the same layout):
+ *   - image header "cs6c", startAddr 0x80700000, burnAddr 0x00020000,
+ *     so the boot loader occupies 0x000000..0x020000 and the firmware
+ *     starts at 0x020000;
+ *   - the firmware carries RTL8812F PHY tables and rtl8367b/rtl8367c
+ *     switch helpers.
+ *
+ * NOT verified on hardware (taken from the Tenda AC23 profile of the
+ * RTL8197F port, which uses the same RTL8197FH + RTL8367RB design):
+ *   - RTL8367RB SMI pins (MDC = GPIO H0 = 56, MDIO = GPIO G7 = 55);
+ *   - CPU port 6 (EXT1, RGMII) and the RGMII delays;
+ *   - switch port to front-panel jack mapping;
+ *   - RAM size (64 MiB declared, the chip may have 128 MiB);
+ *   - LED and button GPIOs (left disabled);
+ *   - the location of the Tenda config block at the end of the flash.
+ *
+ * The flash is exported read-only: the port has no validated SPI-NOR
+ * write path for this board yet, so OpenWrt runs with a tmpfs overlay.
+ * Firmware is written to flash by the Realtek boot loader only.
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+#include "rtl8197f.dtsi"
+
+/ {
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8 lpj=5000000 rootfstype=squashfs clk_ignore_unused";
+		stdout-path = "serial0:115200n8";
+	};
+
+	/* Conservative value, see the header comment. */
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x04000000>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		status = "disabled";
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		status = "disabled";
+	};
+
+	rtl8367_smi: switch {
+		compatible = "realtek,rtl8367rb", "realtek,rtl8367rb-vc", "realtek,rtl8365mb";
+		pinctrl-names = "default";
+		pinctrl-0 = <&rtl8367_smi_h0_g7_pins>;
+		mdc-gpios = <&gpio0 56 GPIO_ACTIVE_HIGH>;  /* SDK H0 */
+		mdio-gpios = <&gpio0 55 GPIO_ACTIVE_HIGH>; /* SDK G7 */
+		realtek,disable-leds;
+		status = "okay";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/*
+			 * The AC8 has 1 WAN + 3 LAN jacks on a 5-PHY switch.  All five
+			 * PHYs are published so the real mapping can be found from the
+			 * link state; one of lan1..lan4 has no jack.
+			 */
+			port@0 { reg = <0>; label = "lan1"; phy-handle = <&swphy0>; };
+			port@1 { reg = <1>; label = "lan2"; phy-handle = <&swphy1>; };
+			port@2 { reg = <2>; label = "lan3"; phy-handle = <&swphy2>; };
+			port@3 { reg = <3>; label = "lan4"; phy-handle = <&swphy3>; };
+			port@4 { reg = <4>; label = "wan";  phy-handle = <&swphy4>; };
+
+			port@6 {
+				reg = <6>;
+				label = "cpu";
+				ethernet = <&ethernet0>;
+				phy-mode = "rgmii";
+				tx-internal-delay-ps = <0>;
+				rx-internal-delay-ps = <600>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+				};
+			};
+		};
+
+		mdio {
+			compatible = "realtek,smi-mdio";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			swphy0: ethernet-phy@0 { reg = <0>; eee-broken-100tx; eee-broken-1000t; };
+			swphy1: ethernet-phy@1 { reg = <1>; eee-broken-100tx; eee-broken-1000t; };
+			swphy2: ethernet-phy@2 { reg = <2>; eee-broken-100tx; eee-broken-1000t; };
+			swphy3: ethernet-phy@3 { reg = <3>; eee-broken-100tx; eee-broken-1000t; };
+			swphy4: ethernet-phy@4 { reg = <4>; eee-broken-100tx; eee-broken-1000t; };
+		};
+	};
+};
+
+&pinmux {
+	rtl8367_smi_h0_g7_pins: rtl8367-smi-h0-g7-pins {
+		pinctrl-single,bits = <0x34 0x03300000 0x0ff00000>;
+	};
+};
+
+&gpio0 {
+	/delete-property/ interrupt-controller;
+	/delete-property/ #interrupt-cells;
+	/delete-property/ interrupt-parent;
+	/delete-property/ interrupts;
+	status = "okay";
+};
+
+&uart0 {
+	/* Polling mode, as on the other RTL8197F boards of the port. */
+	/delete-property/ interrupt-parent;
+	/delete-property/ interrupts;
+};
+
+&spi0 {
+	status = "disabled";
+};
+
+&spirom0 {
+	status = "okay";
+	erase-size = <0x10000>;
+	realtek,read-shift = <1>;
+
+	/*
+	 * Writable flash is intentionally not enabled.  After the board has
+	 * been validated from RAM, a bounded write window can be added here
+	 * (see the Xiaomi RD05 profile of the port), for example:
+	 *
+	 *	realtek,writable-offset = <...>;
+	 *	realtek,writable-size = <...>;
+	 *
+	 * together with the "controller" register resource.
+	 */
+
+	/* The flash size and the partition table are set per flash chip. */
+};
+
+&ethdiag0 {
+	status = "disabled";
+};
+
+&ethernet0 {
+	realtek,tx-port-mask = <0x40>;
+	realtek,tx-dp-ext = <0x2>;
+	realtek,tx-extspa = <0x0>;
+	realtek,rx-poll-fallback;
+	realtek,rx-poll-ms = <50>;
+	realtek,sdk-cpuicr1-init;
+	realtek,sdk-swcore-init;
+	realtek,sdk-trxrdy;
+	status = "okay";
+};
+
+&pcie0 {
+	/*
+	 * RTL8812FR (10ec:f812 expected).  RTL8197FH/VG boards use the 40 MHz
+	 * reference clock tuning of the vendor BSP.
+	 */
+	realtek,refclk-40mhz;
+	realtek,rtl8197f-vg;
+	status = "okay";
+};

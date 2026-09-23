@@ -1,0 +1,136 @@
+name: Build OpenWrt (Tenda AC8 v1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      devices:
+        description: "Profiles: tenda_ac8-v1 (stock 4 MiB), tenda_ac8-v1-8m, tenda_ac8-v1-16m"
+        default: "tenda_ac8-v1 tenda_ac8-v1-8m tenda_ac8-v1-16m"
+        type: string
+      extra_packages:
+        description: "Extra packages for every image, space separated"
+        default: ""
+        type: string
+      release:
+        description: "Publish the images as a GitHub release"
+        default: false
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - "base.env"
+      - "configs/**"
+      - "overlay/**"
+      - "patches/**"
+      - "scripts/prepare.sh"
+      - "scripts/configure.sh"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVICES: ${{ inputs.devices || 'tenda_ac8-v1 tenda_ac8-v1-8m tenda_ac8-v1-16m' }}
+  EXTRA_PACKAGES: ${{ inputs.extra_packages || '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools python3-pyelftools rsync swig unzip zlib1g-dev \
+            file wget zstd libelf-dev quilt xsltproc
+
+      - name: Prepare source tree
+        run: ./scripts/prepare.sh "$GITHUB_WORKSPACE/openwrt"
+
+      - name: Configure
+        run: ./scripts/configure.sh openwrt "$DEVICES" "$EXTRA_PACKAGES"
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: dl-${{ hashFiles('base.env', 'configs/**', 'patches/**') }}-${{ github.run_id }}
+          restore-keys: |
+            dl-${{ hashFiles('base.env', 'configs/**', 'patches/**') }}-
+            dl-
+
+      - name: Download sources
+        working-directory: openwrt
+        run: make download -j8 || make download -j1 V=s
+
+      - name: Build tools and toolchain
+        working-directory: openwrt
+        run: make -j"$(nproc)" tools/install toolchain/install || make -j1 V=s tools/install toolchain/install
+
+      - name: Build firmware
+        working-directory: openwrt
+        run: make -j"$(nproc)" || make -j1 V=s
+
+      - name: Collect images
+        id: collect
+        run: |
+          src=openwrt/bin/targets/realtek/rtl8197f
+          mkdir -p out
+          cp "$src"/*tenda_ac8* out/
+          cp "$src"/sha256sums out/ 2>/dev/null || true
+          cp openwrt/.config out/config.buildinfo
+          cp scripts/make-fullflash.py out/
+          missing=0
+          for dev in $DEVICES; do
+            ls out/*-rtl8197f-"$dev"-initramfs-kernel.bin >/dev/null 2>&1 ||
+              { echo "::error::no initramfs image for $dev"; missing=1; }
+            ls out/*-rtl8197f-"$dev"-squashfs-flash.bin >/dev/null 2>&1 ||
+              echo "::warning::no flash image for $dev (probably does not fit the flash)"
+          done
+          ls -l out
+          echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          exit $missing
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-tenda-ac8-${{ github.run_number }}
+          path: out/
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            openwrt/logs/
+            openwrt/.config
+          if-no-files-found: ignore
+
+      - name: Publish release
+        if: inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.collect.outputs.tag }}
+          name: OpenWrt 24.10 for Tenda AC8 v1 (${{ steps.collect.outputs.tag }})
+          prerelease: true
+          body: |
+            Experimental build, see README before flashing anything.
+            Base: tobyw121/Openwrt_RTL (OpenWrt 24.10, Linux 6.6, realtek/rtl8197f).
+          files: out/*

@@ -1,0 +1,144 @@
+Subject: [PATCH] rtl8192cd-rtl8197f: add Tenda AC8 (RTL8197FH + RTL8812F) variant
+
+The driver sources carry a config_8192cd.h for the Tenda MW5 (RTL8822B
+on PCIe), so the 8812F build referenced RTL8822B tables it never
+compiled and failed in modpost.  The ac8 variant installs its own
+config_8192cd_ac8.h (8197F + 8812FE on PCIe slot 1) before compiling.
+
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/Makefile
++++ b/package/kernel/rtl8192cd-rtl8197f/Makefile
+@@ -43,6 +43,13 @@
+   CONFLICTS:=kmod-rtl8192cd-rtl8197f-mw5 kmod-rtl8192cd-rtl8197f-rd05
+ endef
+ 
++define KernelPackage/rtl8192cd-rtl8197f-ac8
++$(call KernelPackage/rtl8192cd-rtl8197f/Default)
++  TITLE:=RTL8197FH + RTL8812F WLAN bring-up driver for Tenda AC8
++  VARIANT:=ac8
++  CONFLICTS:=kmod-rtl8192cd-rtl8197f-mw5 kmod-rtl8192cd-rtl8197f-rd05 kmod-rtl8192cd-rtl8197f-ac23
++endef
++
+ define KernelPackage/rtl8192cd-rtl8197f-mw5/description
+  Linux-6 compatibility port for the MW5 radio pair: integrated RTL8197FS
+  2.4 GHz plus external PCIe RTL8822B 5 GHz. Manual, phase-instrumented load.
+@@ -58,11 +65,18 @@
+  2.4 GHz plus external PCIe RTL8814B 5 GHz. Manual, phase-instrumented load.
+ endef
+ 
++define KernelPackage/rtl8192cd-rtl8197f-ac8/description
++ Linux-6 compatibility port for the Tenda AC8 radio pair: integrated
++ RTL8197FH 2.4 GHz plus external PCIe RTL8812F 5 GHz (same pair as the
++ Xiaomi RD05). Manual, phase-instrumented load.
++endef
++
+ define Build/Prepare
+ 	$(RM) -r $(PKG_BUILD_DIR)
+ 	$(INSTALL_DIR) $(PKG_BUILD_DIR)
+ 	$(CP) ./src/. $(PKG_BUILD_DIR)/
+ 	find $(PKG_BUILD_DIR) -maxdepth 1 -type f -name 'data_*.c' -exec touch {} +
++	$(if $(filter ac8,$(BUILD_VARIANT)),$(CP) ./config_8192cd_ac8.h $(PKG_BUILD_DIR)/config_8192cd.h)
+ endef
+ 
+ RTL8197F_COMMON_VARS:= \
+@@ -89,6 +103,10 @@
+ 	CONFIG_WLAN_HAL_8812FE=y \
+ 	CONFIG_WLAN_MACHAL_API_V0=y
+ 
++RTL8197F_VARIANT_VARS_ac8:= \
++	CONFIG_WLAN_HAL_8812FE=y \
++	CONFIG_WLAN_MACHAL_API_V0=y
++
+ RTL8197F_VARIANT_VARS_ac23:= \
+ 	CONFIG_WLAN_HAL_8814BE=y \
+ 	CONFIG_WLAN_MACHAL_API_V1=y
+@@ -121,6 +139,11 @@
+ $(call KernelPackage/rtl8192cd-rtl8197f/install-common,$(1))
+ endef
+ 
++define KernelPackage/rtl8192cd-rtl8197f-ac8/install
++$(call KernelPackage/rtl8192cd-rtl8197f/install-common,$(1))
++endef
++
+ $(eval $(call KernelPackage,rtl8192cd-rtl8197f-mw5))
+ $(eval $(call KernelPackage,rtl8192cd-rtl8197f-rd05))
+ $(eval $(call KernelPackage,rtl8192cd-rtl8197f-ac23))
++$(eval $(call KernelPackage,rtl8192cd-rtl8197f-ac8))
+--- a/package/kernel/rtl8192cd-rtl8197f/src/rtl8197f_platform_glue.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/rtl8197f_platform_glue.c
+@@ -11,7 +11,7 @@
+ 
+ static char board_profile[24] = "auto";
+ module_param_string(board_profile, board_profile, sizeof(board_profile), 0644);
+-MODULE_PARM_DESC(board_profile, "auto, mw5, rd05 or ac23 (diagnostic/profile selector)");
++MODULE_PARM_DESC(board_profile, "auto, mw5, rd05, ac23 or ac8 (diagnostic/profile selector)");
+ 
+ static bool external_radio = true;
+ module_param(external_radio, bool, 0644);
+@@ -40,6 +40,8 @@
+ 	if (of_machine_is_compatible("tenda,ac23") ||
+ 	    of_machine_is_compatible("tenda,lynx-rtl8197f"))
+ 		return "ac23";
++	if (of_machine_is_compatible("tenda,ac8-v1"))
++		return "ac8";
+ 	return "unknown";
+ }
+ 
+@@ -57,7 +59,8 @@
+ 	/* RD05 is RTL8197FH-VG and AC23 is listed as RTL8197FH.  The GPL BSP
+ 	 * handles those non-FS packages through the 97FB/FH bond path.
+ 	 */
+-	if (!strcmp(profile, "rd05") || !strcmp(profile, "ac23"))
++	if (!strcmp(profile, "rd05") || !strcmp(profile, "ac23") ||
++	    !strcmp(profile, "ac8"))
+ 		return BSP_BOND_97FB;
+ 
+ 	pr_warn("rtl8197f-wlan: unknown board, defaulting bond option to 97FB\n");
+--- a/package/kernel/rtl8192cd-rtl8197f/files/usr/sbin/rtl8197f-wlan-load
++++ b/package/kernel/rtl8192cd-rtl8197f/files/usr/sbin/rtl8197f-wlan-load
+@@ -10,6 +10,7 @@
+ 	tenda,nova-mw5) profile=mw5; bond=3 ;;
+ 	xiaomi,r4-rd05) profile=rd05; bond=1 ;;
+ 	tenda,ac23|tenda,lynx-rtl8197f) profile=ac23; bond=1 ;;
++	tenda,ac8-v1|tenda,ac8-v1-8m|tenda,ac8-v1-16m) profile=ac8; bond=1 ;;
+ 	*) echo "Refusing WLAN load on unsupported board '$board'" >&2; exit 2 ;;
+ esac
+ 
+--- a/package/kernel/rtl8192cd-rtl8197f/files/usr/sbin/rtl8197f-wlan-ap-test
++++ b/package/kernel/rtl8192cd-rtl8197f/files/usr/sbin/rtl8197f-wlan-ap-test
+@@ -7,7 +7,7 @@
+ usage() {
+ 	cat <<'USAGE'
+ Usage:
+-  rtl8197f-wlan-ap-test --profile mw5|rd05|ac23 --band 2g|5g \
++  rtl8197f-wlan-ap-test --profile mw5|rd05|ac23|ac8 --band 2g|5g \
+     --ssid NAME --regdomain N [--interface IFACE] [--channel N] \
+     [--width 20|40|80] [--rfe N] (--open | --key PASSPHRASE) \
+     [--bridge BRIDGE] [--apply] [--dry-run]
+@@ -57,7 +57,7 @@
+ 	esac
+ done
+ 
+-case "$profile" in mw5|rd05|ac23) ;; *) echo 'A valid --profile is required.' >&2; exit 2 ;; esac
++case "$profile" in mw5|rd05|ac23|ac8) ;; *) echo 'A valid --profile is required.' >&2; exit 2 ;; esac
+ case "$band" in 2g|5g) ;; *) echo '--band must be 2g or 5g.' >&2; exit 2 ;; esac
+ case "$security" in open|psk) ;; *) echo 'Choose exactly one of --open or --key.' >&2; exit 2 ;; esac
+ [ -n "$ssid" ] || { echo '--ssid is required.' >&2; exit 2; }
+@@ -76,8 +76,8 @@
+ 		: "${iface:=wlan0}"; : "${rfe:=6}"; : "${channel:=40}"; : "${width:=80}"
+ 	fi
+ else
+-	[ -n "$iface" ] || { echo 'RD05/AC23 require --interface until probe order is confirmed.' >&2; exit 2; }
+-	[ -n "$rfe" ] || { echo 'RD05/AC23 require --rfe until board calibration is confirmed.' >&2; exit 2; }
++	[ -n "$iface" ] || { echo 'RD05/AC23/AC8 require --interface until probe order is confirmed.' >&2; exit 2; }
++	[ -n "$rfe" ] || { echo 'RD05/AC23/AC8 require --rfe until board calibration is confirmed.' >&2; exit 2; }
+ 	if [ "$band" = 2g ]; then
+ 		: "${channel:=6}"; : "${width:=20}"
+ 	else
+--- a/package/kernel/rtl8192cd-rtl8197f/files/etc/rtl8197f-wlan-profiles.conf
++++ b/package/kernel/rtl8192cd-rtl8197f/files/etc/rtl8197f-wlan-profiles.conf
+@@ -2,3 +2,4 @@
+ mw5|3|RTL8197FS@0xb8640000,irq6,wlan1,RFE5|RTL8822B(10ec:b822),wlan0,RFE6; RTL8812BRH conflicts with board inventory|5|both radios confirmed by OEM runtime/proc and PCI evidence
+ rd05|1|RTL8197FH/VG@0xb8640000,irq6|RTL8812F(10ec:f812),RFE0|0|external confirmed by OEM boot log; interface order still experimental
+ ac23|1|RTL8197FH/VG integrated radio|RTL8814B/RTL8814BR|unknown|board inventory only; PCI ID, RFE and interface order unconfirmed
++ac8|1|RTL8197FH integrated radio|RTL8812F/RTL8812FR (10ec:f812 expected)|unknown|stock firmware carries RTL8812F tables; PCI ID, RFE and interface order unconfirmed
