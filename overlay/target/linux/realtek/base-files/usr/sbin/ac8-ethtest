@@ -1,0 +1,329 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# ac8-ethtest: calibrate the LAN link of the Tenda AC8 v1 at run time.
+#
+# The RTL8197F CPU port (P0, RGMII) and the RTL8367RB switch (port 6) need
+# matching RGMII delays and CPU-tag handling, and none of them is verified
+# on the AC8 yet.  The script tries the combinations and reads the switch
+# MIB and netdev counters after each one, so the two directions are judged
+# separately:
+#
+#   TX  router -> switch -> PC   the PC port of the switch sent frames
+#   RX  PC -> switch -> router   DSA delivered frames on the PC port
+#
+# Before running it: connect a PC to a LAN jack, give the PC the static
+# address 192.168.1.2/24 and let it ping 192.168.1.1 all the time
+# (Windows: ping -t 192.168.1.1).  The ping makes the PC send frames; it
+# starts to answer as soon as both directions work.
+#
+# Nothing is written to flash.  The working values stay active until the
+# next reboot; send the summary to the firmware maintainer so they can be
+# made the default.
+
+set -u
+
+LOG=/tmp/ac8-ethtest.log
+RTK=/sys/module/rtl8197f_rtknet/parameters
+PROC=/proc/rd05-rtknet
+TAGGING=/sys/class/net/eth0/dsa/tagging
+USER_PORTS="lan1 lan2 lan3 lan4 wan"
+SNAP_A=/tmp/ac8-ethtest.a
+SNAP_B=/tmp/ac8-ethtest.b
+
+# Most likely values first: the vendor timing of the RD05/MW5 profiles.
+SW_RX_ORDER="5 4 6 3 7 2 1 0"
+SOC_RX_ORDER="6 5 7 4 3 2 1 0"
+
+say() {
+	echo "$*" | tee -a "$LOG"
+}
+
+die() {
+	say "ERROR: $*"
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+Usage: ac8-ethtest [--quick]
+
+Connect a PC to a LAN jack, set its address to 192.168.1.2/24 and run
+"ping -t 192.168.1.1" (Windows) or "ping 192.168.1.1" on it.  Then run
+ac8-ethtest on the router's serial console and wait (up to ~10 minutes).
+
+  --quick   only try the device tree defaults and the two tag formats
+EOF
+}
+
+quick=0
+case "${1:-}" in
+	-h|--help) usage; exit 0 ;;
+	--quick) quick=1 ;;
+	"") ;;
+	*) usage >&2; exit 2 ;;
+esac
+
+: >"$LOG"
+
+board=$(cat /tmp/sysinfo/board_name 2>/dev/null)
+case "$board" in
+	tenda,ac8-v1*) ;;
+	*) die "this script is for the Tenda AC8 v1, board is '$board'" ;;
+esac
+
+[ -w "$PROC" ] || die "$PROC is missing: the firmware has no AC8 support in rtknet"
+[ -w "$RTK/rd05_p0_cpu_tag" ] || die "rtknet has no rd05_p0_cpu_tag parameter (old firmware)"
+SW=""
+for f in /sys/module/*/parameters/ext_rgmii_rx_delay; do
+	[ -w "$f" ] && SW=${f%/ext_rgmii_rx_delay}
+done
+[ -n "$SW" ] || die "rtl8365mb has no ext_rgmii_rx_delay parameter (old firmware)"
+[ -e "$TAGGING" ] || die "$TAGGING is missing"
+command -v ethtool >/dev/null || die "ethtool is missing"
+
+# Keep the console readable: rtknet logs every restart.
+printk_saved=$(cat /proc/sys/kernel/printk 2>/dev/null)
+echo 1 >/proc/sys/kernel/printk 2>/dev/null
+trap '[ -n "$printk_saved" ] && echo "$printk_saved" >/proc/sys/kernel/printk 2>/dev/null; rm -f "$SNAP_A" "$SNAP_B"' EXIT
+trap 'exit 130' INT TERM
+
+carrier() {
+	[ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = 1 ]
+}
+
+# --- where is the PC ---------------------------------------------------
+
+PORT=""
+for p in lan1 lan2 lan3 lan4; do
+	if carrier "$p"; then
+		[ -z "$PORT" ] && PORT=$p
+		say "link up on $p"
+	fi
+done
+carrier wan && say "link up on wan (switch port 4)"
+if [ -z "$PORT" ]; then
+	carrier wan && die "the cable is in the WAN jack; move it to a LAN jack"
+	die "no link on lan1..lan4: connect a PC to a LAN jack"
+fi
+
+say "===== ac8-ethtest $(date) ====="
+say "board: $board, kernel: $(uname -r)"
+say "PC port: $PORT"
+say "tagging: $(cat "$TAGGING"), switch params: $SW"
+say "rtknet: cpu_tag=$(cat "$RTK/rd05_p0_cpu_tag") p0_tx=$(cat "$RTK/rd05_p0_tx_delay") p0_rx=$(cat "$RTK/rd05_p0_rx_delay")"
+dmesg | grep -E 'rtknet|RGMII runtime|RTL8367RB|realtek-smi' | grep -E 'p0 rgmii|poststart|rejected|registered|RGMII|found an|ac8 ' | tail -n 8 | tee -a "$LOG"
+
+# --- counters ----------------------------------------------------------
+
+snap() {
+	{
+		ethtool -S eth0 2>/dev/null |
+			awk '$1 ~ /^p06_/ { k = $1; sub(":", "", k); sub("^p06_", "", k); print "cpu_" k, $2 }'
+		ethtool -S "$PORT" 2>/dev/null |
+			awk 'NF == 2 { k = $1; sub(":", "", k); print "pc_" k, $2 }'
+		for s in rx_packets tx_packets rx_errors rx_dropped; do
+			echo "eth0_$s $(cat /sys/class/net/eth0/statistics/$s 2>/dev/null || echo 0)"
+		done
+		echo "dsa_rx $(cat "/sys/class/net/$PORT/statistics/rx_packets" 2>/dev/null || echo 0)"
+	} >"$1"
+}
+
+# Sum of the differences of the given keys between SNAP_A and SNAP_B.
+delta() {
+	awk -v keys="$*" '
+		BEGIN { n = split(keys, k, " "); for (i = 1; i <= n; i++) want[k[i]] = 1 }
+		FNR == NR { if ($1 in want) a[$1] = $2; next }
+		($1 in want) { sum += $2 - a[$1] }
+		END { print sum + 0 }
+	' "$SNAP_A" "$SNAP_B"
+}
+
+# --- settings ----------------------------------------------------------
+
+cur_proto=$(cat "$TAGGING")
+cur_cputag=0
+cur_soc_tx=$(cat "$RTK/rd05_p0_tx_delay")
+cur_soc_rx=$(cat "$RTK/rd05_p0_rx_delay")
+cur_sw_tx=-1
+cur_sw_rx=-1
+
+restart_cpuif() {
+	echo reseed >"$PROC" 2>/dev/null || say "  (reseed failed)"
+	sleep 1
+}
+
+set_soc() {	# cputag soc_tx soc_rx
+	echo "$1" >"$RTK/rd05_p0_cpu_tag"
+	echo "$2" >"$RTK/rd05_p0_tx_delay"
+	echo "$3" >"$RTK/rd05_p0_rx_delay"
+	cur_cputag=$1 cur_soc_tx=$2 cur_soc_rx=$3
+	restart_cpuif
+}
+
+set_sw() {	# sw_tx sw_rx (applied by the driver at once)
+	echo "$1" >"$SW/ext_rgmii_tx_delay" 2>/dev/null || say "  (switch tx delay $1 rejected)"
+	echo "$2" >"$SW/ext_rgmii_rx_delay" 2>/dev/null || say "  (switch rx delay $2 rejected)"
+	cur_sw_tx=$1 cur_sw_rx=$2
+	sleep 1
+}
+
+wait_carrier() {
+	i=0
+	while [ $i -lt 15 ]; do
+		carrier "$PORT" && return 0
+		sleep 1
+		i=$((i + 1))
+	done
+	return 1
+}
+
+set_proto() {
+	[ "$(cat "$TAGGING")" = "$1" ] && { cur_proto=$1; return 0; }
+	say "--- switching the DSA tag to $1 (the PC link goes down for a few seconds)"
+	for p in $USER_PORTS; do ip link set "$p" down 2>/dev/null; done
+	ip link set eth0 down
+	if ! echo "$1" >"$TAGGING" 2>/dev/null; then
+		say "  cannot select $1"
+		ip link set eth0 up
+		for p in $USER_PORTS; do ip link set "$p" up 2>/dev/null; done
+		wait_carrier
+		return 1
+	fi
+	ip link set eth0 up
+	for p in $USER_PORTS; do ip link set "$p" up 2>/dev/null; done
+	wait_carrier || say "  no link on $PORT after the switch"
+	# rtknet restarts the CPU interface 3 s after it is opened.
+	sleep 5
+	cur_proto=$1
+	# Opening eth0 replays P0 from the parameters, the switch keeps its own.
+	return 0
+}
+
+# --- probes ------------------------------------------------------------
+
+probe_ip=150
+
+tx_probe() {
+	snap "$SNAP_A"
+	# ARP requests for unused addresses: broadcast frames to every port.
+	for i in 1 2 3; do
+		ping -q -c 1 -W 1 -I br-lan "192.168.1.$probe_ip" >/dev/null 2>&1
+		probe_ip=$((probe_ip + 1))
+		[ $probe_ip -gt 240 ] && probe_ip=150
+	done
+	snap "$SNAP_B"
+	tx_cpu_in=$(delta cpu_ifInUcastPkts cpu_ifInMulticastPkts cpu_ifInBroadcastPkts)
+	tx_cpu_err=$(delta cpu_dot3StatsFCSErrors cpu_dot3StatsSymbolErrors cpu_etherStatsFragments cpu_etherStatsJabbers)
+	tx_cpu_drop=$(delta cpu_etherStatsDropEvents cpu_dot1dTpPortInDiscards)
+	tx_pc_out=$(delta pc_ifOutUcastPkts pc_ifOutMulticastPkts pc_ifOutBroadcastPkts)
+	tx_ok=0
+	[ "$tx_pc_out" -ge 2 ] && [ "$tx_cpu_err" -eq 0 ] && tx_ok=1
+}
+
+rx_probe() {
+	snap "$SNAP_A"
+	sleep 3
+	snap "$SNAP_B"
+	rx_pc_in=$(delta pc_ifInUcastPkts pc_ifInMulticastPkts pc_ifInBroadcastPkts)
+	rx_cpu_out=$(delta cpu_ifOutUcastPkts cpu_ifOutMulticastPkts cpu_ifOutBroadcastPkts)
+	rx_eth0=$(delta eth0_rx_packets)
+	rx_eth0_err=$(delta eth0_rx_errors eth0_rx_dropped)
+	rx_dsa=$(delta dsa_rx)
+	rx_ok=0
+	[ "$rx_dsa" -ge 1 ] && rx_ok=1
+}
+
+tx_line() {
+	r="no"
+	[ "$tx_ok" = 1 ] && r="OK"
+	say "TX $cur_proto cputag=$cur_cputag soc_tx=$cur_soc_tx sw_rx=$cur_sw_rx | switch_in=$tx_cpu_in rgmii_err=$tx_cpu_err drop=$tx_cpu_drop to_pc=$tx_pc_out -> $r"
+}
+
+rx_line() {
+	r="no"
+	[ "$rx_ok" = 1 ] && r="OK"
+	say "RX $cur_proto cputag=$cur_cputag sw_tx=$cur_sw_tx soc_rx=$cur_soc_rx | from_pc=$rx_pc_in to_cpu=$rx_cpu_out eth0_rx=$rx_eth0 eth0_err=$rx_eth0_err dsa_rx=$rx_dsa -> $r"
+}
+
+# --- sweeps ------------------------------------------------------------
+
+best_tx=""
+best_rx=""
+
+sweep_tx() {
+	for tag_tx in 0 1; do
+		for soc_tx in 0 1; do
+			set_soc $(( (cur_cputag & 1) | (tag_tx << 1) )) "$soc_tx" "$cur_soc_rx"
+			for sw_rx in $SW_RX_ORDER; do
+				set_sw "$(( cur_sw_tx < 0 ? 0 : cur_sw_tx ))" "$sw_rx"
+				tx_probe
+				tx_line
+				if [ "$tx_ok" = 1 ]; then
+					best_tx="proto=$cur_proto tag_tx=$tag_tx soc_tx=$soc_tx sw_rx=$sw_rx"
+					return 0
+				fi
+				[ "$quick" = 1 ] && break
+			done
+		done
+	done
+	return 1
+}
+
+sweep_rx() {
+	for tag_rx in 0 1; do
+		for sw_tx in 0 1; do
+			set_sw "$sw_tx" "$(( cur_sw_rx < 0 ? 5 : cur_sw_rx ))"
+			for soc_rx in $SOC_RX_ORDER; do
+				set_soc $(( (cur_cputag & 2) | tag_rx )) "$cur_soc_tx" "$soc_rx"
+				rx_probe
+				rx_line
+				if [ "$rx_ok" = 1 ]; then
+					best_rx="proto=$cur_proto tag_rx=$tag_rx sw_tx=$sw_tx soc_rx=$soc_rx"
+					return 0
+				fi
+				if [ "$rx_pc_in" -eq 0 ]; then
+					say "  the PC sent nothing in 3 s: is it pinging 192.168.1.1?"
+				fi
+				[ "$quick" = 1 ] && break
+			done
+		done
+	done
+	return 1
+}
+
+say "--- baseline (current settings)"
+set_sw 0 5
+tx_probe; tx_line
+rx_probe; rx_line
+
+result="none"
+for proto in rtl8_4 rtl8_4t; do
+	set_proto "$proto" || continue
+	say "--- $proto: router -> PC"
+	tx_found=0
+	sweep_tx && tx_found=1
+	say "--- $proto: PC -> router"
+	rx_found=0
+	sweep_rx && rx_found=1
+	if [ $tx_found = 1 ] && [ $rx_found = 1 ]; then
+		result="both"
+		break
+	fi
+	[ $tx_found = 1 ] || [ $rx_found = 1 ] && result="partial"
+done
+
+say "===== summary ====="
+say "PC port: $PORT"
+say "TX (router -> PC): ${best_tx:-not found}"
+say "RX (PC -> router): ${best_rx:-not found}"
+say "active now: tagging=$(cat "$TAGGING") rd05_p0_cpu_tag=$(cat "$RTK/rd05_p0_cpu_tag") rd05_p0_tx_delay=$(cat "$RTK/rd05_p0_tx_delay") rd05_p0_rx_delay=$(cat "$RTK/rd05_p0_rx_delay") ext_rgmii_tx_delay=$(cat "$SW/ext_rgmii_tx_delay") ext_rgmii_rx_delay=$(cat "$SW/ext_rgmii_rx_delay")"
+if [ "$result" = both ]; then
+	if ping -q -c 3 -W 1 192.168.1.2 >/dev/null 2>&1; then
+		say "ping 192.168.1.2: OK"
+	else
+		say "ping 192.168.1.2: no answer (a PC firewall may block ping; check http://192.168.1.1)"
+	fi
+	say "LAN works with the settings above until the next reboot."
+fi
+say "Full log: $LOG"

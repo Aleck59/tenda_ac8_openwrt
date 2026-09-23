@@ -1,0 +1,169 @@
+Subject: [PATCH] net: dsa: realtek: rtl8365mb: runtime RGMII delays of the CPU port
+
+The RGMII timing between an RTL8197F and an external RTL8367RB is not
+known for every board, and the only knobs the RTL8197F port has are the
+RTL8367D-specific rd05_ext1_* parameters.  Add ext_rgmii_tx_delay and
+ext_rgmii_rx_delay (-1 = device tree) for the other chips.  Writing one
+drops the forced CPU link, rewrites EXT_RGMXF and forces the link up
+again, so the link can be calibrated on a running system.
+
+---
+--- a/drivers/net/dsa/realtek/rtl8365mb.c
++++ b/drivers/net/dsa/realtek/rtl8365mb.c
+@@ -1238,6 +1238,43 @@
+ 					     min_t(u32, READ_ONCE(rtl8367d_rd05_ext1_rx_delay), 7)));
+ }
+ 
++/* Runtime RGMII timing of the CPU external interface on chips other than the
++ * RTL8367D (which has its own rd05_ext1_* controls), e.g. the RTL8367RB-VB of
++ * the Tenda AC8 v1.  -1 keeps the tx/rx-internal-delay-ps values of the
++ * device tree.  Writing a parameter re-applies the timing at once, so the
++ * RGMII link to the SoC can be calibrated without rebuilding the DTB.
++ */
++static int rtl8365mb_ext_tx_delay = -1;
++static int rtl8365mb_ext_rx_delay = -1;
++static DEFINE_MUTEX(rtl8365mb_ext_runtime_lock);
++static struct realtek_priv *rtl8365mb_ext_runtime_priv;
++static int rtl8365mb_ext_runtime_port;
++static int rtl8365mb_ext_dt_tx_delay;
++static int rtl8365mb_ext_dt_rx_delay;
++
++static void rtl8365mb_ext_runtime_delays(struct realtek_priv *priv, int port,
++					 int *tx_delay, int *rx_delay)
++{
++	int val;
++
++	if (((struct rtl8365mb *)priv->chip_data)->chip_info->rtl8367d)
++		return;
++
++	mutex_lock(&rtl8365mb_ext_runtime_lock);
++	rtl8365mb_ext_runtime_priv = priv;
++	rtl8365mb_ext_runtime_port = port;
++	rtl8365mb_ext_dt_tx_delay = *tx_delay;
++	rtl8365mb_ext_dt_rx_delay = *rx_delay;
++	mutex_unlock(&rtl8365mb_ext_runtime_lock);
++
++	val = READ_ONCE(rtl8365mb_ext_tx_delay);
++	if (val >= 0)
++		*tx_delay = min(val, 1);
++	val = READ_ONCE(rtl8365mb_ext_rx_delay);
++	if (val >= 0)
++		*rx_delay = min(val, 7);
++}
++
+ static int rtl8365mb_ext_config_rgmii(struct realtek_priv *priv, int port,
+ 				      phy_interface_t interface)
+ {
+@@ -1298,6 +1335,8 @@
+ 				 "RGMII RX delay must be 0 to 2.1 ns\n");
+ 	}
+ 
++	rtl8365mb_ext_runtime_delays(priv, port, &tx_delay, &rx_delay);
++
+ 	ret = regmap_update_bits(
+ 		priv->map, RTL8365MB_EXT_RGMXF_REG(extint->id),
+ 		RTL8365MB_EXT_RGMXF_TXDELAY_MASK |
+@@ -1476,6 +1515,91 @@
+ 		phy_interface_set_rgmii(config->supported_interfaces);
+ }
+ 
++/* The vendor driver sets the delays before forcing the interface mode, so
++ * drop the forced link, write EXT_RGMXF and force the 1G link up again.
++ */
++static int rtl8365mb_ext_reapply_runtime(void)
++{
++	const struct rtl8365mb_extint *extint;
++	struct realtek_priv *priv;
++	int tx_delay, rx_delay;
++	int port, ret = 0;
++	u32 rgmxf = 0;
++
++	mutex_lock(&rtl8365mb_ext_runtime_lock);
++	priv = rtl8365mb_ext_runtime_priv;
++	port = rtl8365mb_ext_runtime_port;
++	if (!priv)
++		goto out;
++
++	extint = rtl8365mb_get_port_extint(priv, port);
++	if (!extint) {
++		ret = -ENODEV;
++		goto out;
++	}
++
++	tx_delay = READ_ONCE(rtl8365mb_ext_tx_delay);
++	if (tx_delay < 0)
++		tx_delay = rtl8365mb_ext_dt_tx_delay;
++	rx_delay = READ_ONCE(rtl8365mb_ext_rx_delay);
++	if (rx_delay < 0)
++		rx_delay = rtl8365mb_ext_dt_rx_delay;
++
++	ret = rtl8365mb_ext_config_forcemode(priv, port, false, 0, 0,
++					     false, false);
++	if (!ret)
++		ret = regmap_update_bits(priv->map,
++					 RTL8365MB_EXT_RGMXF_REG(extint->id),
++					 RTL8365MB_EXT_RGMXF_TXDELAY_MASK |
++					 RTL8365MB_EXT_RGMXF_RXDELAY_MASK,
++					 FIELD_PREP(RTL8365MB_EXT_RGMXF_TXDELAY_MASK,
++						    tx_delay) |
++					 FIELD_PREP(RTL8365MB_EXT_RGMXF_RXDELAY_MASK,
++						    rx_delay));
++	if (!ret)
++		ret = rtl8365mb_ext_config_forcemode(priv, port, true,
++						     SPEED_1000, DUPLEX_FULL,
++						     true, true);
++	regmap_read(priv->map, RTL8365MB_EXT_RGMXF_REG(extint->id), &rgmxf);
++	dev_info(priv->dev,
++		 "port %d RGMII runtime timing: tx=%d rx=%d rgmxf=0x%x ret=%d\n",
++		 port, tx_delay, rx_delay, rgmxf, ret);
++out:
++	mutex_unlock(&rtl8365mb_ext_runtime_lock);
++	return ret;
++}
++
++static int rtl8365mb_ext_delay_set(const char *val,
++				   const struct kernel_param *kp)
++{
++	int max = kp->arg == &rtl8365mb_ext_tx_delay ? 1 : 7;
++	int delay;
++	int ret;
++
++	ret = kstrtoint(val, 0, &delay);
++	if (ret)
++		return ret;
++	if (delay < -1 || delay > max)
++		return -EINVAL;
++
++	WRITE_ONCE(*(int *)kp->arg, delay);
++	return rtl8365mb_ext_reapply_runtime();
++}
++
++static const struct kernel_param_ops rtl8365mb_ext_delay_ops = {
++	.set = rtl8365mb_ext_delay_set,
++	.get = param_get_int,
++};
++
++module_param_cb(ext_rgmii_tx_delay, &rtl8365mb_ext_delay_ops,
++		&rtl8365mb_ext_tx_delay, 0644);
++MODULE_PARM_DESC(ext_rgmii_tx_delay,
++		 "CPU port RGMII TX delay (not RTL8367D): -1 device tree, 0 off, 1 2 ns");
++module_param_cb(ext_rgmii_rx_delay, &rtl8365mb_ext_delay_ops,
++		&rtl8365mb_ext_rx_delay, 0644);
++MODULE_PARM_DESC(ext_rgmii_rx_delay,
++		 "CPU port RGMII RX delay (not RTL8367D): -1 device tree, 0..7 in 0.3 ns steps");
++
+ static void rtl8365mb_phylink_mac_config(struct dsa_switch *ds, int port,
+ 					 unsigned int mode,
+ 					 const struct phylink_link_state *state)
+@@ -3543,6 +3667,11 @@
+ 		mutex_unlock(&rtl8367d_rd05_runtime_lock);
+ 	}
+ 
++	mutex_lock(&rtl8365mb_ext_runtime_lock);
++	if (rtl8365mb_ext_runtime_priv == priv)
++		rtl8365mb_ext_runtime_priv = NULL;
++	mutex_unlock(&rtl8365mb_ext_runtime_lock);
++
+ 	rtl8365mb_stats_teardown(priv);
+ 	rtl8365mb_irq_teardown(priv);
+ }

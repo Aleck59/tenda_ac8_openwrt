@@ -1,0 +1,337 @@
+Subject: [PATCH] realtek: rtl8197f-rtknet: run the Tenda AC8 through the RD05 datapath
+
+The AC8 v1 is wired like the Xiaomi RD05: RTL8197FH-VG, an external
+RTL8367-family switch (RTL8367RB-VB) on physical P0/RGMII and the 8-byte
+rtl8_4 DSA tag.  rtknet only programmed P0/RGMII, the SWCORE host-link
+tables and the post-start ring re-arm for RD05 and MW5, so on the AC8 the
+ring base registers read back as zero ("txring ... hw-start rejected
+base=0x00000000", cpurpdcr0=0) and no frame could pass.
+
+Treat tenda,ac8-v1 as an RD05-class board in rtknet.  The P0 CPU-tag
+engines, which the RD05 enables and the MW5 had to disable in v43.8
+because Linux DSA already owns the tag, become a runtime parameter
+(rd05_p0_cpu_tag, bit 0 RX parser, bit 1 TX generator); the AC8 starts
+with both off.
+
+The RD05 reseed (/proc/rd05-rtknet, MAC change, the delayed reseed after
+open) rewinds the hardware ring pointers but not the driver's ring
+indices.  On the AC8 a reseed restarts the CPU interface consistently
+instead, so it can be used to apply new P0 settings under traffic.  The
+procfs trigger and the delayed reseed take RTNL so a restart cannot race
+ndo_stop(), and the AC8 TX watchdog defers the restart to that work:
+hw_start() seeds the SWCORE tables with a sleeping poll, which the
+watchdog timer context does not allow.
+
+Also register the watchdog restart/power-off handlers on the AC8, which
+had no way to reboot.  Its switch needs no GPIO pre-initialisation.
+
+---
+--- a/target/linux/realtek/files-6.6/drivers/net/ethernet/rtl8197f_rd05_oem_switch_preinit.c
++++ b/target/linux/realtek/files-6.6/drivers/net/ethernet/rtl8197f_rd05_oem_switch_preinit.c
+@@ -184,10 +184,15 @@
+ {
+ 	bool rd05 = of_machine_is_compatible("xiaomi,r4-rd05");
+ 	bool mw5 = of_machine_is_compatible("tenda,nova-mw5");
++	/* The AC8 boot loader already leaves the RTL8367RB out of reset with
++	 * SMI on H0/G7 (the switch answers without any GPIO setup), so only
++	 * the watchdog and the restart/power-off handlers are needed there.
++	 */
++	bool ac8 = of_machine_is_compatible("tenda,ac8-v1");
+ 	void __iomem *gpio;
+ 	int ret;
+ 
+-	if (!rd05 && !mw5)
++	if (!rd05 && !mw5 && !ac8)
+ 		return 0;
+ 
+ 	rtl8197f_sys_base = ioremap(RTL8197F_SYS_BASE, RTL8197F_SYS_SIZE);
+@@ -199,18 +204,20 @@
+ 	/* Stop the bootloader watchdog before the MW5 2 x 1 s reset delays. */
+ 	rtl8197f_stop_watchdog();
+ 
+-	gpio = ioremap(RTL8197F_GPIO_BASE, RTL8197F_GPIO_SIZE);
+-	if (!gpio) {
+-		pr_warn("rtl8197f-switch-preinit: failed to map GPIO registers\n");
+-		return 0;
+-	}
++	if (rd05 || mw5) {
++		gpio = ioremap(RTL8197F_GPIO_BASE, RTL8197F_GPIO_SIZE);
++		if (!gpio) {
++			pr_warn("rtl8197f-switch-preinit: failed to map GPIO registers\n");
++			return 0;
++		}
++
++		if (rd05)
++			rtl8197f_rd05_switch_gpio_init(gpio);
++		else
++			rtl8197f_mw5_switch_gpio_init(gpio);
+ 
+-	if (rd05)
+-		rtl8197f_rd05_switch_gpio_init(gpio);
+-	else
+-		rtl8197f_mw5_switch_gpio_init(gpio);
+-
+-	iounmap(gpio);
++		iounmap(gpio);
++	}
+ 
+ 	/* Repeat the safe kick-then-stop sequence after switch reset/pinmux. */
+ 	rtl8197f_stop_watchdog();
+--- a/target/linux/realtek/files-6.6/drivers/net/ethernet/rtl8197f_rtknet.c
++++ b/target/linux/realtek/files-6.6/drivers/net/ethernet/rtl8197f_rtknet.c
+@@ -22,6 +22,7 @@
+ #include <linux/io.h>
+ #include <linux/kernel.h>
+ #include <linux/rcupdate.h>
++#include <linux/rtnetlink.h>
+ #include <linux/iopoll.h>
+ #include <linux/module.h>
+ #include <linux/netdevice.h>
+@@ -450,6 +451,15 @@
+ module_param_named(rd05_p0_rx_delay, rd05_p0_rx_delay, uint, 0644);
+ MODULE_PARM_DESC(rd05_p0_rx_delay, "RD05 RTL8197F P0 RGMII RX delay tap: 0..7");
+ 
++/* P0 CPU-tag handling on RD05-class boards: bit 0 enables the P0 parser for
++ * switch-to-CPU tags, bit 1 lets P0 generate CPU-to-switch tags.  -1 keeps
++ * the board default.  Like the delays above it takes effect on the next P0
++ * setup, e.g. "echo reseed > /proc/rd05-rtknet".
++ */
++static int rd05_p0_cpu_tag = -1;
++module_param_named(rd05_p0_cpu_tag, rd05_p0_cpu_tag, int, 0644);
++MODULE_PARM_DESC(rd05_p0_cpu_tag, "RD05-class P0 CPU tag: -1 board default, bit0 RX parser, bit1 TX generator");
++
+ static atomic_t rd05_txdesc_trace_count = ATOMIC_INIT(0);
+ 
+ 
+@@ -825,9 +835,20 @@
+ 	}
+ }
+ 
+-static bool rtl8197f_rtk_p0_external_switch_board(void)
++/*
++ * Boards wired like the Xiaomi RD05: RTL8197FH-VG with an external RTL8367
++ * family switch on physical P0/RGMII and the 8-byte rtl8_4 DSA tag.  The
++ * Tenda AC8 v1 (RTL8367RB-VB, CPU port 6/EXT1) uses the same datapath.
++ */
++static bool rtl8197f_rtk_rd05_class(void)
+ {
+ 	return of_machine_is_compatible("xiaomi,r4-rd05") ||
++	       of_machine_is_compatible("tenda,ac8-v1");
++}
++
++static bool rtl8197f_rtk_p0_external_switch_board(void)
++{
++	return rtl8197f_rtk_rd05_class() ||
+ 	       of_machine_is_compatible("tenda,nova-mw5");
+ }
+ 
+@@ -1496,8 +1517,18 @@
+ 		 * below reconstructs it when this RTL8197FS revision still strips it.
+ 		 */
+ 		if (!mw5) {
+-			gmii |= RTL_RTK_P0GMIICR_CPU_TAG_RX;
+-			gmii |= RTL_RTK_P0GMIICR_CPU_TAG_TX;
++			int cpu_tag = READ_ONCE(rd05_p0_cpu_tag);
++
++			/* RD05 keeps both P0 tag engines.  The AC8 starts like
++			 * the MW5 after v43.8: Linux DSA inserts and parses the
++			 * whole tag, P0 must neither strip nor add one.
++			 */
++			if (cpu_tag < 0)
++				cpu_tag = of_machine_is_compatible("tenda,ac8-v1") ? 0 : 3;
++			if (cpu_tag & BIT(0))
++				gmii |= RTL_RTK_P0GMIICR_CPU_TAG_RX;
++			if (cpu_tag & BIT(1))
++				gmii |= RTL_RTK_P0GMIICR_CPU_TAG_TX;
+ 		}
+ 	}
+ 	writel(gmii, priv->swcore + RTL_RTK_SWCORE_P0GMIICR);
+@@ -1585,7 +1616,7 @@
+ 	u32 val;
+ 	int i;
+ 
+-	if (!of_machine_is_compatible("xiaomi,r4-rd05") || !priv->swcore)
++	if (!rtl8197f_rtk_rd05_class() || !priv->swcore)
+ 		return;
+ 
+ 	priv->rd05_vendor_sideband_runs++;
+@@ -2455,7 +2486,7 @@
+ {
+ 	u32 expected, actual, rx_base;
+ 
+-	if (!of_machine_is_compatible("xiaomi,r4-rd05") &&
++	if (!rtl8197f_rtk_rd05_class() &&
+ 	    !of_machine_is_compatible("tenda,nova-mw5"))
+ 		return;
+ 
+@@ -2585,7 +2616,7 @@
+ 	unsigned int i;
+ 	size_t ring_sz, ph_sz, mb_sz;
+ 
+-	if (!of_machine_is_compatible("xiaomi,r4-rd05"))
++	if (!rtl8197f_rtk_rd05_class())
+ 		return 0;
+ 
+ 	ring_sz = priv->rx_ring_size * sizeof(*priv->rd05_rx_ph_ring);
+@@ -3891,7 +3922,7 @@
+ 	m->hwlookup = priv->tx_hwlookup;
+ 	m->bridge = priv->tx_bridge;
+ 
+-	if (!of_machine_is_compatible("xiaomi,r4-rd05"))
++	if (!rtl8197f_rtk_rd05_class())
+ 		return;
+ 
+ 	/*
+@@ -3969,7 +4000,7 @@
+ 	u16 proto = 0;
+ 	int n;
+ 
+-	if (!of_machine_is_compatible("xiaomi,r4-rd05"))
++	if (!rtl8197f_rtk_rd05_class())
+ 		return;
+ 	if (len < ETH_HLEN)
+ 		return;
+@@ -4228,6 +4259,14 @@
+ 
+ 	priv->tx_timeouts++;
+ 	ndev->stats.tx_errors++;
++	if (of_machine_is_compatible("tenda,ac8-v1")) {
++		/* hw_start() seeds the SWCORE tables and may sleep, which the
++		 * watchdog timer context does not allow.
++		 */
++		netdev_warn(ndev, "TX timeout, restarting the CPU interface\n");
++		mod_delayed_work(system_wq, &priv->rd05_reseed_work, 0);
++		return;
++	}
+ 	netdev_warn(ndev, "TX timeout, resetting rtl865x CPU ring\n");
+ 	rtl8197f_rtk_hw_stop(priv);
+ 	rtl8197f_rtk_tx_reset(priv);
+@@ -4613,6 +4652,52 @@
+ 	}
+ }
+ 
++/*
++ * The RD05 reseed rewinds the hardware RX/TX ring pointers (program_newdesc_rx,
++ * program_tx_ring_geometry) while the driver keeps its ring indices, so the
++ * following frames wait for a full ring wrap or the TX watchdog.  On the AC8
++ * restart the CPU interface the way ndo_open does instead: stop DMA, hand
++ * every RX slot back to the hardware, drop pending TX and run hw_start(),
++ * which replays P0/RGMII, the SWCORE tables and the post-start ring re-arm.
++ */
++static void rtl8197f_rtk_ac8_restart(struct rtl8197f_rtknet_priv *priv)
++{
++	struct net_device *ndev = priv->ndev;
++	unsigned int i;
++
++	napi_disable(&priv->napi);
++	netif_tx_disable(ndev);
++	rtl8197f_rtk_hw_stop(priv);
++	rtl8197f_rtk_tx_reset(priv);
++
++	for (i = 0; i < priv->rx_ring_size; i++) {
++		struct rtl8197f_rtk_desc *desc = rtl8197f_rtk_rx_desc(priv, i);
++		u32 wrap = i == priv->rx_ring_size - 1 ? RTL_RTK_DESC_WRAP : 0;
++
++		desc->opts2 = 0;
++		desc->opts3 = 0;
++		desc->opts4 = 0;
++		desc->opts5 = 0;
++		rtl8197f_rtk_desc_clear_padding(priv, desc);
++		if (!priv->rx_skb[i]) {
++			/* No buffer behind this slot: keep it CPU-owned. */
++			desc->opts1 = cpu_to_le32(wrap);
++			continue;
++		}
++		dma_sync_single_for_device(priv->dev, priv->rx_dma[i],
++					   priv->rx_buf_size, DMA_FROM_DEVICE);
++		desc->opts1 = cpu_to_le32(RTL_RTK_DESC_OWN |
++					  (priv->rx_buf_size <<
++					   RTL_RTK_RX_EXTSIZE_SHIFT) | wrap);
++	}
++	priv->rx_tail = 0;
++	wmb();
++
++	rtl8197f_rtk_hw_start(priv);
++	napi_enable(&priv->napi);
++	netif_wake_queue(ndev);
++}
++
+ static int rtl8197f_rtk_rd05_reseed_cmd(struct rtl8197f_rtknet_priv *priv,
+ 					 const char *origin, int cmd)
+ {
+@@ -4634,6 +4719,16 @@
+ 
+ 	priv->rd05_private_ioctl_runs++;
+ 
++	if (of_machine_is_compatible("tenda,ac8-v1") &&
++	    netif_running(priv->ndev)) {
++		rtl8197f_rtk_ac8_restart(priv);
++		dev_info(priv->dev,
++			 "ac8 %s: CPU interface restarted, cmd=0x%x runs=%llu\n",
++			 origin, cmd,
++			 (unsigned long long)priv->rd05_private_ioctl_runs);
++		return 0;
++	}
++
+ 	if (cmd == RTL_RTK_RD05_PRIV_RESEED ||
+ 	    cmd == RTL_RTK_RD05_PRIV_VENDOR_SIDE)
+ 		rtl8197f_rtk_rd05_vendor_sidebands(priv, origin);
+@@ -4827,7 +4922,10 @@
+ 		return cmd;
+ 
+ 	priv = netdev_priv(ndev);
++	/* A reseed must not race ndo_stop() freeing the rings. */
++	rtnl_lock();
+ 	ret = rtl8197f_rtk_rd05_reseed_cmd(priv, "procfs", cmd);
++	rtnl_unlock();
+ 	return ret ? ret : len;
+ }
+ 
+@@ -4845,10 +4943,17 @@
+ 		container_of(to_delayed_work(work), struct rtl8197f_rtknet_priv,
+ 			     rd05_reseed_work);
+ 
+-	if (!netif_running(priv->ndev))
++	/* ndo_stop() cancels this work synchronously with RTNL held, so only
++	 * try the lock and come back later instead of blocking on it.
++	 */
++	if (!rtnl_trylock()) {
++		schedule_delayed_work(&priv->rd05_reseed_work, msecs_to_jiffies(100));
+ 		return;
+-
+-	rtl8197f_rtk_rd05_reseed_cmd(priv, "delayed-linkup", RTL_RTK_RD05_PRIV_RESEED);
++	}
++	if (netif_running(priv->ndev))
++		rtl8197f_rtk_rd05_reseed_cmd(priv, "delayed-linkup",
++					     RTL_RTK_RD05_PRIV_RESEED);
++	rtnl_unlock();
+ }
+ 
+ static int rtl8197f_rtk_do_ioctl(struct net_device *ndev, struct ifreq *ifr,
+@@ -5029,7 +5134,7 @@
+ 					       &priv->rx_poll_ms, 10, 1000);
+ 	}
+ 
+-	if (of_machine_is_compatible("xiaomi,r4-rd05")) {
++	if (rtl8197f_rtk_rd05_class()) {
+ 		priv->rx_poll_fallback = true;
+ 		priv->sdk_trxrdy = true;
+ 		priv->sdk_cpuicr1_init = true;
+@@ -5090,7 +5195,7 @@
+ 			priv->sdk_swcore_init = true;
+ 	}
+ 
+-	if (of_machine_is_compatible("xiaomi,r4-rd05") ||
++	if (rtl8197f_rtk_rd05_class() ||
+ 	    of_machine_is_compatible("tenda,nova-mw5")) {
+ 		/* GPL SDK topology for RTL8197F + RTL83xx: physical P0/RGMII is the
+ 		 * SoC-facing cascade link. The external switch CPU port is the opposite
+@@ -5156,7 +5261,7 @@
+ 		 priv->sdk_cpuicr1_init, priv->sdk_swcore_init,
+ 		 priv->legacy_rd05_pipeline, priv->sdk_trxrdy,
+ 		 priv->sdk_crc_lengths,
+-		 !!of_machine_is_compatible("xiaomi,r4-rd05"));
++		 !!rtl8197f_rtk_rd05_class());
+ 	return 0;
+ 
+ err_del_napi:
