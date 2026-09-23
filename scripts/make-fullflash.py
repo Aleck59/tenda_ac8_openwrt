@@ -42,6 +42,8 @@ import sys
 BOOT_SIZE = 0x20000
 CONFIG_SIZE = 0x20000
 SIZES = {"4M": 4 << 20, "8M": 8 << 20, "16M": 16 << 20}
+# The original AC8 v1 chip can be smaller than the target (e.g. 2 MiB).
+BACKUP_SIZES = (2 << 20,) + tuple(SIZES.values())
 SIGNATURES = (b"cs6c", b"cr6c")
 
 
@@ -60,8 +62,8 @@ def die(msg: str) -> None:
 
 
 def check_backup(backup: bytes, force: bool) -> bytes:
-    if len(backup) not in SIZES.values():
-        die(f"backup is {len(backup)} bytes, expected a full 4/8/16 MiB dump")
+    if len(backup) not in BACKUP_SIZES:
+        die(f"backup is {len(backup)} bytes, expected a full 2/4/8/16 MiB dump")
     stock_sig = backup[BOOT_SIZE:BOOT_SIZE + 4]
     if stock_sig not in SIGNATURES:
         msg = (f"backup has {stock_sig!r} at 0x{BOOT_SIZE:x}, not a Realtek cs6c/cr6c "

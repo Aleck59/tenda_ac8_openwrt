@@ -30,3 +30,20 @@ Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network layout
  		tenda,lynx-rtl8197f)
  		# If only the native CPU port exists, do not invent a missing WAN device.
  		[ "$lan_list" = "eth0" ] || ucidef_set_interfaces_lan_wan "$lan_list" "${wan_list:-wan}"
+@@ -107,6 +120,16 @@
+ 	lan_mac="$label_mac"
+ 	[ -n "$lan_mac" ] && wan_mac=$(macaddr_add "$lan_mac" 2)
+ 	;;
++tenda,ac8-v1|\
++tenda,ac8-v1-8m|\
++tenda,ac8-v1-16m)
++	# Tenda "FLSH" key=value store at 0x1c000 in the boot area:
++	# et0macaddr (LAN, label), wl0_hwaddr (5 GHz), wl1_hwaddr (2.4 GHz).
++	# The stock firmware uses et0macaddr for WAN as well (wan0_hwaddr).
++	label_mac=$(mtd_get_mac_ascii boot et0macaddr)
++	lan_mac="$label_mac"
++	wan_mac="$label_mac"
++	;;
+ hpe,1920-8g|\
+ hpe,1920-8g-poe-65w|\
+ hpe,1920-8g-poe-180w|\
