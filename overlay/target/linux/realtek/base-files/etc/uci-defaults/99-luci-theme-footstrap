@@ -1,0 +1,13 @@
+#!/bin/sh
+# Make footstrap the LuCI theme where the image ships it (Tenda AC8).
+# Its own uci-defaults only picks it when no theme is set yet, and
+# luci-base already sets bootstrap.
+
+[ -d /www/luci-static/footstrap ] || exit 0
+
+uci -q get luci.themes.Footstrap >/dev/null ||
+	uci set luci.themes.Footstrap=/luci-static/footstrap
+uci set luci.main.mediaurlbase=/luci-static/footstrap
+uci commit luci
+
+exit 0

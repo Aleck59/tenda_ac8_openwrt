@@ -41,11 +41,13 @@ for p in "$repo_root"/patches/*.patch; do
 done
 
 echo "==> Installing feeds"
+# footstrap: LuCI theme luci-theme-footstrap v0.14.13 (default theme of the AC8 images).
 cat > "$out/feeds.conf" <<'EOF'
 src-git packages https://github.com/openwrt/packages.git;openwrt-24.10
 src-git luci https://github.com/openwrt/luci.git;openwrt-24.10
 src-git routing https://github.com/openwrt/routing.git;openwrt-24.10
 src-git telephony https://github.com/openwrt/telephony.git;openwrt-24.10
+src-git footstrap https://github.com/VizzleTF/luci-theme-footstrap.git^754e529b2857ef7ff50cd23f4eb6ff14cdebd3e1
 EOF
 cd "$out"
 ./scripts/feeds update -a

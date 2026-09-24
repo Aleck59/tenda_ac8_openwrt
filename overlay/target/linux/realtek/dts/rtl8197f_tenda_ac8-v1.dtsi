@@ -22,8 +22,8 @@
  * NOT verified on hardware (taken from the Tenda AC23 profile of the
  * RTL8197F port, which uses the same RTL8197FH + RTL8367RB design, and
  * from the Xiaomi RD05 profile for the SoC side of the link):
- *   - CPU port 6 (EXT1, RGMII) and the RGMII delays under traffic;
- *   - the RD05 P0/RGMII datapath of rtknet;
+ *   - WAN traffic (LAN verified: LuCI reachable with the delays and the
+ *     rtl8_4t tag chosen by ac8-ethtest);
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
  *   - LED and button GPIOs (left disabled);
@@ -96,15 +96,17 @@
 				ethernet = <&ethernet0>;
 				phy-mode = "rgmii";
 				/*
-				 * TX0/RX5 (RX 5 x 0.3 ns) is the vendor timing of both
-				 * RTL8197F boards of the port with an RTL8367-family
-				 * switch (RD05, MW5); not yet verified on the AC8.  It
-				 * can be changed at run time through
-				 * /sys/module/rtl8365mb/parameters/ext_rgmii_{tx,rx}_delay,
-				 * see ac8-ethtest.
+				 * Found with ac8-ethtest on a real AC8 v1: frames from
+				 * the SoC only pass with the trailer tag (with the
+				 * header tag the switch drops them) and with switch RX
+				 * delay 3 (0.9 ns) against P0 TX delay 1, see
+				 * &ethernet0.  Both delays can be changed at run time
+				 * through /sys/module/rtl8365mb/parameters/
+				 * ext_rgmii_{tx,rx}_delay.
 				 */
+				dsa-tag-protocol = "rtl8_4t";
 				tx-internal-delay-ps = <0>;
-				rx-internal-delay-ps = <1500>;
+				rx-internal-delay-ps = <900>;
 
 				fixed-link {
 					speed = <1000>;
@@ -201,6 +203,13 @@
 	realtek,p0-cpu-tag-pass-through;
 	/* Descriptor lengths include the FCS, as in the Realtek SDK. */
 	realtek,sdk-crc-lengths;
+	/*
+	 * P0 RGMII delays found with ac8-ethtest (TX delay on, RX tap 6).
+	 * Runtime parameters: /sys/module/rtl8197f_rtknet/parameters/
+	 * rd05_p0_{tx,rx}_delay.
+	 */
+	realtek,p0-rgmii-tx-delay = <1>;
+	realtek,p0-rgmii-rx-delay = <6>;
 	status = "okay";
 };
 

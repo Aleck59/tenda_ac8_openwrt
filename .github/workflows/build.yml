@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       devices:
-        description: "Profiles: tenda_ac8-v1 (stock 4 MiB), tenda_ac8-v1-8m, tenda_ac8-v1-16m"
-        default: "tenda_ac8-v1 tenda_ac8-v1-8m tenda_ac8-v1-16m"
+        description: "Profiles: tenda_ac8-v1-8m, tenda_ac8-v1-16m (tenda_ac8-v1 = stock 4 MiB, RAM image only)"
+        default: "tenda_ac8-v1-8m tenda_ac8-v1-16m"
         type: string
       extra_packages:
         description: "Extra packages for every image, space separated"
@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DEVICES: ${{ inputs.devices || 'tenda_ac8-v1 tenda_ac8-v1-8m tenda_ac8-v1-16m' }}
+  DEVICES: ${{ inputs.devices || 'tenda_ac8-v1-8m tenda_ac8-v1-16m' }}
   EXTRA_PACKAGES: ${{ inputs.extra_packages || '' }}
 
 jobs:
@@ -114,49 +114,60 @@ jobs:
           echo "CPU cores: $(nproc), toolchain from cache: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}"
           make -j"$(nproc)" || make -j1 V=s
 
+      # The release carries only what gets written to the router: the full
+      # chip image with the boot loader and the update image for 0x20000.
+      # RAM-boot images go to a separate workflow artifact for TFTP tests.
       - name: Collect images
         id: collect
         run: |
           src=openwrt/bin/targets/realtek/rtl8197f
-          mkdir -p out
-          cp "$src"/*tenda_ac8* out/
-          cp openwrt/.config out/config.buildinfo
-          cp scripts/make-fullflash.py out/
-          missing=0
+          mkdir -p out ramboot
+          cp "$src"/*tenda_ac8*-initramfs-kernel.bin ramboot/ 2>/dev/null || true
           for dev in $DEVICES; do
-            ls out/*-rtl8197f-"$dev"-initramfs-kernel.bin >/dev/null 2>&1 ||
-              { echo "::error::no initramfs image for $dev"; missing=1; }
-            fw=$(ls out/*-rtl8197f-"$dev"-squashfs-flash.bin 2>/dev/null) ||
+            fw=$(ls "$src"/*-rtl8197f-"$dev"-squashfs-flash.bin 2>/dev/null) ||
               { echo "::warning::no flash image for $dev (probably does not fit the flash)"; continue; }
-            # Chip-sized image for a programmer, boot loader area left erased:
-            # written region-wise with the .layout file, see docs/flashing.md.
+            cp "$fw" out/
             case "$dev" in
               *-16m) size=16M ;;
               *-8m) size=8M ;;
               *) size=4M ;;
             esac
-            python3 scripts/make-fullflash.py --firmware "$fw" --size "$size" \
-              --output "${fw%-squashfs-flash.bin}-programmer-firmware-region.bin"
             # Full chip image with the owner's boot loader (first 128 KiB of
-            # the stock dump), only when it has been added to the repository.
+            # the stock dump), only when it is in the repository.
             if [ -f boot/tenda_ac8-v1-boot.bin ]; then
+              full="out/$(basename "${fw%-squashfs-flash.bin}")-fullflash.bin"
               python3 scripts/make-fullflash.py --boot boot/tenda_ac8-v1-boot.bin \
-                --firmware "$fw" --size "$size" \
-                --output "${fw%-squashfs-flash.bin}-fullflash.bin"
+                --firmware "$fw" --size "$size" --output "$full"
+              rm -f "$full.layout"
             else
               echo "::notice::boot/tenda_ac8-v1-boot.bin is not in the repository, no fullflash image for $dev"
             fi
           done
-          (cd out && sha256sum *.bin > sha256sums)
-          ls -l out
+          ls out/*.bin >/dev/null 2>&1 || { echo "::error::no firmware images"; exit 1; }
+          {
+            cat docs/release-notes.md
+            echo
+            echo '### SHA-256'
+            echo
+            echo '```'
+            (cd out && sha256sum *.bin)
+            echo '```'
+          } > release-body.md
+          ls -l out ramboot
           echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          exit $missing
 
       - name: Upload images
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-tenda-ac8-${{ github.run_number }}
           path: out/
+
+      - name: Upload RAM-boot images
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-tenda-ac8-${{ github.run_number }}-ramboot
+          path: ramboot/
+          if-no-files-found: ignore
 
       - name: Upload build logs
         if: failure()
@@ -176,5 +187,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: OpenWrt 24.10 для Tenda AC8 v1 (${{ steps.collect.outputs.tag }})
           prerelease: true
-          body_path: docs/release-notes.md
-          files: out/*
+          body_path: release-body.md
+          files: out/*.bin

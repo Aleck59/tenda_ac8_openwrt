@@ -20,6 +20,10 @@
 # Nothing is written to flash.  The working values stay active until the
 # next reboot; send the summary to the firmware maintainer so they can be
 # made the default.
+#
+# --margin keeps the tag format and CPU-tag mode and walks every delay of
+# both directions around the current values, to see how wide the working
+# window is.  The original values are restored afterwards.
 
 set -u
 
@@ -46,20 +50,27 @@ die() {
 
 usage() {
 	cat <<'EOF'
-Usage: ac8-ethtest [--quick]
+Usage: ac8-ethtest [--quick | --full | --margin]
 
 Connect a PC to a LAN jack, set its address to 192.168.1.2/24 and run
 "ping -t 192.168.1.1" (Windows) or "ping 192.168.1.1" on it.  Then run
 ac8-ethtest on the router's serial console and wait (up to ~10 minutes).
 
-  --quick   only try the device tree defaults and the two tag formats
+  (none)    check the current settings, search only if they fail
+  --quick   search, but only one delay value per combination
+  --full    search even if the current settings work
+  --margin  measure the working range of every delay (~5 minutes)
 EOF
 }
 
 quick=0
+full=0
+margin=0
 case "${1:-}" in
 	-h|--help) usage; exit 0 ;;
 	--quick) quick=1 ;;
+	--full) full=1 ;;
+	--margin) margin=1 ;;
 	"") ;;
 	*) usage >&2; exit 2 ;;
 esac
@@ -141,12 +152,36 @@ delta() {
 
 # --- settings ----------------------------------------------------------
 
+# Big-endian u32 device tree property as a decimal number.
+dt_u32() {
+	set -- $(od -An -tx1 "$1" 2>/dev/null)
+	[ $# -eq 4 ] || return 1
+	echo $(( (0x$1 << 24) | (0x$2 << 16) | (0x$3 << 8) | 0x$4 ))
+}
+
+cpu_port_dt() {	# property -> value of the switch CPU port node
+	for f in /proc/device-tree/*/ports/port@6/"$1"; do
+		[ -e "$f" ] && dt_u32 "$f" && return 0
+	done
+	return 1
+}
+
 cur_proto=$(cat "$TAGGING")
-cur_cputag=0
+cur_cputag=$(cat "$RTK/rd05_p0_cpu_tag")
+[ "$cur_cputag" -lt 0 ] && cur_cputag=0
 cur_soc_tx=$(cat "$RTK/rd05_p0_tx_delay")
 cur_soc_rx=$(cat "$RTK/rd05_p0_rx_delay")
-cur_sw_tx=-1
-cur_sw_rx=-1
+cur_sw_tx=$(cat "$SW/ext_rgmii_tx_delay")
+if [ "$cur_sw_tx" -lt 0 ]; then
+	ps=$(cpu_port_dt tx-internal-delay-ps) || ps=0
+	cur_sw_tx=$(( ps >= 1000 ? 1 : 0 ))
+fi
+cur_sw_rx=$(cat "$SW/ext_rgmii_rx_delay")
+if [ "$cur_sw_rx" -lt 0 ]; then
+	ps=$(cpu_port_dt rx-internal-delay-ps) || ps=0
+	cur_sw_rx=$(( (ps + 150) / 300 ))
+fi
+say "current: tagging=$cur_proto cputag=$cur_cputag soc_tx=$cur_soc_tx soc_rx=$cur_soc_rx sw_tx=$cur_sw_tx sw_rx=$cur_sw_rx"
 
 restart_cpuif() {
 	echo reseed >"$PROC" 2>/dev/null || say "  (reseed failed)"
@@ -256,7 +291,7 @@ sweep_tx() {
 		for soc_tx in 0 1; do
 			set_soc $(( (cur_cputag & 1) | (tag_tx << 1) )) "$soc_tx" "$cur_soc_rx"
 			for sw_rx in $SW_RX_ORDER; do
-				set_sw "$(( cur_sw_tx < 0 ? 0 : cur_sw_tx ))" "$sw_rx"
+				set_sw "$cur_sw_tx" "$sw_rx"
 				tx_probe
 				tx_line
 				if [ "$tx_ok" = 1 ]; then
@@ -273,7 +308,7 @@ sweep_tx() {
 sweep_rx() {
 	for tag_rx in 0 1; do
 		for sw_tx in 0 1; do
-			set_sw "$sw_tx" "$(( cur_sw_rx < 0 ? 5 : cur_sw_rx ))"
+			set_sw "$sw_tx" "$cur_sw_rx"
 			for soc_rx in $SOC_RX_ORDER; do
 				set_soc $(( (cur_cputag & 2) | tag_rx )) "$cur_soc_tx" "$soc_rx"
 				rx_probe
@@ -292,13 +327,59 @@ sweep_rx() {
 	return 1
 }
 
+tagger_drops() {
+	n=$(dmesg | grep -cE 'non-realtek ethertype|unknown realtek protocol|could not find slave')
+	say "DSA tagger drops in dmesg: $n"
+	[ "$n" -gt 0 ] && dmesg | grep -E 'non-realtek ethertype|unknown realtek protocol|could not find slave' | tail -n 5 | tee -a "$LOG"
+}
+
 say "--- baseline (current settings)"
-set_sw 0 5
 tx_probe; tx_line
 rx_probe; rx_line
 
+if [ "$margin" = 1 ]; then
+	o_cputag=$cur_cputag o_soc_tx=$cur_soc_tx o_soc_rx=$cur_soc_rx
+	o_sw_tx=$cur_sw_tx o_sw_rx=$cur_sw_rx
+	say "--- margin: router -> PC ($cur_proto, cputag=$cur_cputag)"
+	for soc_tx in 0 1; do
+		set_soc "$o_cputag" "$soc_tx" "$o_soc_rx"
+		for sw_rx in 0 1 2 3 4 5 6 7; do
+			set_sw "$o_sw_tx" "$sw_rx"
+			tx_probe; tx_line
+		done
+	done
+	set_sw "$o_sw_tx" "$o_sw_rx"
+	set_soc "$o_cputag" "$o_soc_tx" "$o_soc_rx"
+	say "--- margin: PC -> router ($cur_proto, cputag=$cur_cputag)"
+	for sw_tx in 0 1; do
+		set_sw "$sw_tx" "$o_sw_rx"
+		for soc_rx in 0 1 2 3 4 5 6 7; do
+			set_soc "$o_cputag" "$o_soc_tx" "$soc_rx"
+			rx_probe; rx_line
+		done
+	done
+	set_sw "$o_sw_tx" "$o_sw_rx"
+	set_soc "$o_cputag" "$o_soc_tx" "$o_soc_rx"
+	say "===== margin done, restored: soc_tx=$o_soc_tx soc_rx=$o_soc_rx sw_tx=$o_sw_tx sw_rx=$o_sw_rx ====="
+	tagger_drops
+	say "Full log: $LOG"
+	exit 0
+fi
+
+if [ "$tx_ok" = 1 ] && [ "$rx_ok" = 1 ] && [ "$full" = 0 ]; then
+	say "===== summary ====="
+	say "PC port: $PORT"
+	say "The current settings work in both directions, nothing to search."
+	tagger_drops
+	say "Full log: $LOG"
+	exit 0
+fi
+
+other_proto=rtl8_4
+[ "$cur_proto" = rtl8_4 ] && other_proto=rtl8_4t
+
 result="none"
-for proto in rtl8_4 rtl8_4t; do
+for proto in "$cur_proto" "$other_proto"; do
 	set_proto "$proto" || continue
 	say "--- $proto: router -> PC"
 	tx_found=0
@@ -326,4 +407,5 @@ if [ "$result" = both ]; then
 	fi
 	say "LAN works with the settings above until the next reboot."
 fi
+tagger_drops
 say "Full log: $LOG"

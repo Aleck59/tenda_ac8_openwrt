@@ -80,7 +80,7 @@ can sit above the decompressed kernel.
 +  RTL8197F_BURNADDR := 0x00020000
 +  RTL8197F_HEADER_SIZE := 16
 +  RTL8197F_KERNEL_CMDLINE := console=ttyS0,115200n8 lpj=5000000 rootfstype=squashfs clk_ignore_unused
-+  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools luci
++  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools luci luci-theme-footstrap
 +  IMAGES := flash.bin
 +  IMAGE/flash.bin := \
 +    append-kernel | \

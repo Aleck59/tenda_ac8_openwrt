@@ -11,7 +11,8 @@ Treat tenda,ac8-v1 as an RD05-class board in rtknet.  The P0 CPU-tag
 engines, which the RD05 enables and the MW5 had to disable in v43.8
 because Linux DSA already owns the tag, become a runtime parameter
 (rd05_p0_cpu_tag, bit 0 RX parser, bit 1 TX generator); the AC8 starts
-with both off.
+with both off.  RD05-class boards can set the initial P0 RGMII delays in
+the device tree (realtek,p0-rgmii-tx-delay, realtek,p0-rgmii-rx-delay).
 
 The RD05 reseed (/proc/rd05-rtknet, MAC change, the delayed reseed after
 open) rewinds the hardware ring pointers but not the driver's ring
@@ -317,7 +318,27 @@ had no way to reboot.  Its switch needs no GPIO pre-initialisation.
  		priv->rx_poll_fallback = true;
  		priv->sdk_trxrdy = true;
  		priv->sdk_cpuicr1_init = true;
-@@ -5090,7 +5195,7 @@
+@@ -5050,6 +5155,19 @@
+ 	}
+ 
+ 
++	/* Board RGMII timing of P0 from the device tree (the AC8 values were
++	 * calibrated with ac8-ethtest).  It only seeds the runtime parameters,
++	 * which can still be changed afterwards.
++	 */
++	if (np && rtl8197f_rtk_rd05_class()) {
++		u32 delay;
++
++		if (!of_property_read_u32(np, "realtek,p0-rgmii-tx-delay", &delay))
++			WRITE_ONCE(rd05_p0_tx_delay, min_t(u32, delay, 1));
++		if (!of_property_read_u32(np, "realtek,p0-rgmii-rx-delay", &delay))
++			WRITE_ONCE(rd05_p0_rx_delay, min_t(u32, delay, 7));
++	}
++
+ 	if (of_machine_is_compatible("tenda,nova-mw5")) {
+ 		/* GPL SDK CONFIG_RTL_8197F + CONFIG_RTL_8367R_SUPPORT:
+ 		 * external switch on physical P0/RGMII and CPU-tag parsing enabled
+@@ -5090,7 +5208,7 @@
  			priv->sdk_swcore_init = true;
  	}
  
@@ -326,7 +347,7 @@ had no way to reboot.  Its switch needs no GPIO pre-initialisation.
  	    of_machine_is_compatible("tenda,nova-mw5")) {
  		/* GPL SDK topology for RTL8197F + RTL83xx: physical P0/RGMII is the
  		 * SoC-facing cascade link. The external switch CPU port is the opposite
-@@ -5156,7 +5261,7 @@
+@@ -5156,7 +5274,7 @@
  		 priv->sdk_cpuicr1_init, priv->sdk_swcore_init,
  		 priv->legacy_rd05_pipeline, priv->sdk_trxrdy,
  		 priv->sdk_crc_lengths,
