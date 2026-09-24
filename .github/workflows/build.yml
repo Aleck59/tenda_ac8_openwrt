@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       devices:
-        description: "Profiles: tenda_ac8-v1-8m, tenda_ac8-v1-16m (tenda_ac8-v1 = stock 4 MiB, RAM image only)"
+        description: "Profiles: tenda_ac8-v1-8m, tenda_ac8-v1-16m"
         default: "tenda_ac8-v1-8m tenda_ac8-v1-16m"
         type: string
       extra_packages:
@@ -78,7 +78,17 @@ jobs:
             dl-
 
       # Host tools and the cross toolchain take ~35 of the ~55 minutes and
-      # depend only on the pinned base tree, so they are reused between runs.
+      # depend only on the pinned base tree and on the target and compiler
+      # settings, not on packages or rootfs options, so they are reused
+      # between runs.
+      - name: Toolchain cache key
+        id: toolchain-key
+        run: |
+          sum=$( { cat base.env
+            grep -E '^CONFIG_(TARGET_BOARD|TARGET_SUBTARGET|TARGET_ARCH_PACKAGES|CPU_TYPE|ARCH|TARGET_OPTIMIZATION|EXTRA_OPTIMIZATION|SOFT_FLOAT|USE_MIPS16|USE_MUSL|USE_GLIBC|BINUTILS_|GCC_|LIBC|TARGET_SUFFIX|TOOLCHAINOPTS|EXTERNAL_TOOLCHAIN)' openwrt/.config
+          } | sha256sum | cut -c1-40)
+          echo "key=toolchain-${{ runner.os }}-$sum" >> "$GITHUB_OUTPUT"
+
       - name: Cache tools and toolchain
         id: cache-toolchain
         uses: actions/cache@v4
@@ -86,7 +96,7 @@ jobs:
           path: |
             openwrt/staging_dir/host
             openwrt/staging_dir/toolchain-*
-          key: toolchain-${{ runner.os }}-${{ hashFiles('base.env', 'configs/**') }}
+          key: ${{ steps.toolchain-key.outputs.key }}
 
       # A fresh checkout makes every source file newer than the cached build
       # stamps; touch them so make treats the restored tools as up to date.
@@ -116,13 +126,11 @@ jobs:
 
       # The release carries only what gets written to the router: the full
       # chip image with the boot loader and the update image for 0x20000.
-      # RAM-boot images go to a separate workflow artifact for TFTP tests.
       - name: Collect images
         id: collect
         run: |
           src=openwrt/bin/targets/realtek/rtl8197f
-          mkdir -p out ramboot
-          cp "$src"/*tenda_ac8*-initramfs-kernel.bin ramboot/ 2>/dev/null || true
+          mkdir -p out
           for dev in $DEVICES; do
             fw=$(ls "$src"/*-rtl8197f-"$dev"-squashfs-flash.bin 2>/dev/null) ||
               { echo "::warning::no flash image for $dev (probably does not fit the flash)"; continue; }
@@ -153,7 +161,7 @@ jobs:
             (cd out && sha256sum *.bin)
             echo '```'
           } > release-body.md
-          ls -l out ramboot
+          ls -l out
           echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Upload images
@@ -161,13 +169,6 @@ jobs:
         with:
           name: openwrt-tenda-ac8-${{ github.run_number }}
           path: out/
-
-      - name: Upload RAM-boot images
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-tenda-ac8-${{ github.run_number }}-ramboot
-          path: ramboot/
-          if-no-files-found: ignore
 
       - name: Upload build logs
         if: failure()
