@@ -22,9 +22,16 @@ cp "$tree/bin/targets/$board/$subtarget/packages/"*.ipk "$out/"
 cp "$tree/bin/packages/$arch/footstrap/"*.ipk "$out/"
 cp "$tree/bin/packages/$arch/base/"wifi-scripts_*.ipk "$out/"
 
+cd "$out"
+# GitHub renames release assets with other characters, "~" (in git
+# snapshot versions) becomes ".": use the published names in the index.
+for f in *.ipk; do
+	g=$(printf '%s' "$f" | tr -c 'A-Za-z0-9._-' '.')
+	[ "$f" = "$g" ] || mv "$f" "$g"
+done
+
 # The same steps as "make package/index".
 export MKHASH="$tree/staging_dir/host/bin/mkhash"
-cd "$out"
 "$tree/scripts/ipkg-make-index.sh" . 2>/dev/null > Packages.manifest
 grep -vE '^(Maintainer|LicenseFiles|Source|SourceName|Require|SourceDateEpoch)' \
 	Packages.manifest > Packages

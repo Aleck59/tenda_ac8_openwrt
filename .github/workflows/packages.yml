@@ -82,6 +82,12 @@ jobs:
           TAG: ${{ steps.feed.outputs.tag }}
         run: |
           count=$(ls feed/*.ipk | wc -l)
+          # The index names the files; GitHub would rename other characters.
+          bad=$(ls feed | grep -v '^[A-Za-z0-9._-]*$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::file names GitHub would change: $bad"
+            exit 1
+          fi
           # A release holds at most 1000 files.
           if [ $((count + 4)) -gt 1000 ]; then
             echo "::error::$count packages do not fit into one release, trim configs/kmods-exclude.txt"
