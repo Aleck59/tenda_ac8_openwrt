@@ -26,22 +26,27 @@
  *     rtl8_4t tag chosen by ac8-ethtest);
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
- *   - LED and button GPIOs (left disabled);
+ *   - LED GPIOs (taken from the Tenda AC10U v1) and button GPIOs;
  *   - the location of the Tenda config block at the end of the flash.
  *
- * The flash is exported read-only: the port has no validated SPI-NOR
- * write path for this board yet, so OpenWrt runs with a tmpfs overlay.
- * Firmware is written to flash by the Realtek boot loader only.
+ * The stock 4 MiB profile exports the flash read-only.  The 8/16 MiB
+ * profiles open the firmware partition for writes (sysupgrade, JFFS2
+ * overlay in rootfs_data); the boot loader area stays read-only.
  */
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 
 #include "rtl8197f.dtsi"
 
 / {
 	aliases {
 		serial0 = &uart0;
+		led-boot = &led_sys;
+		led-failsafe = &led_sys;
+		led-running = &led_sys;
+		led-upgrade = &led_sys;
 	};
 
 	chosen {
@@ -55,9 +60,41 @@
 		reg = <0x00000000 0x04000000>;
 	};
 
+	/*
+	 * LED GPIOs of the Tenda AC10U v1 (RTL8197F + RTL8367R, OpenWrt 18.06
+	 * rtkmipsel mach-ac10u.c), which the AC8 v1 shares according to its
+	 * owner: SYS H1 and WLAN E1 active low, WAN C7 and LAN D7 active high.
+	 * The AC10U buttons are left out: its WPS button is on H0, which is the
+	 * switch MDC on the AC8.
+	 */
 	leds {
 		compatible = "gpio-leds";
-		status = "disabled";
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_pins>;
+
+		led_sys: led-0 {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&gpio0 57 GPIO_ACTIVE_LOW>;	/* H1 */
+		};
+
+		led-1 {
+			function = LED_FUNCTION_WAN;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&gpio0 23 GPIO_ACTIVE_HIGH>;	/* C7 */
+		};
+
+		led-2 {
+			function = LED_FUNCTION_LAN;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;	/* D7 */
+		};
+
+		led-3 {
+			function = LED_FUNCTION_WLAN;
+			color = <LED_COLOR_ID_BLUE>;
+			gpios = <&gpio0 33 GPIO_ACTIVE_LOW>;	/* E1 */
+		};
 	};
 
 	keys {
@@ -134,6 +171,14 @@
 	rtl8367_smi_h0_g7_pins: rtl8367-smi-h0-g7-pins {
 		pinctrl-single,bits = <0x34 0x03300000 0x0ff00000>;
 	};
+
+	/* GPIO function of the LED pins, values from the rtkmipsel BSP. */
+	led_pins: led-pins {
+		pinctrl-single,bits = <0x34 0x00020000 0x000f0000>,	/* H1 */
+				      <0x40 0x00000050 0x000000f0>,	/* C7 */
+				      <0x3c 0x00000070 0x000000f0>,	/* D7 */
+				      <0x44 0x10000000 0xf0000000>;	/* E1 */
+	};
 };
 
 &gpio0 {
@@ -165,17 +210,9 @@
 	realtek,read-shift = <0>;
 
 	/*
-	 * Writable flash is intentionally not enabled.  After the board has
-	 * been validated from RAM, a bounded write window can be added here
-	 * (see the Xiaomi RD05 profile of the port), for example:
-	 *
-	 *	realtek,writable-offset = <...>;
-	 *	realtek,writable-size = <...>;
-	 *
-	 * together with the "controller" register resource.
+	 * The flash size, the partition table and the writable window
+	 * (realtek,writable-offset/size) are set per flash chip.
 	 */
-
-	/* The flash size and the partition table are set per flash chip. */
 };
 
 &ethdiag0 {

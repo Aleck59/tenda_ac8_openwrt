@@ -1,8 +1,10 @@
 Subject: [PATCH] realtek: rtl8197f: add Tenda AC8 v1 images
 
-Add the stock 4 MiB layout and the 8/16 MiB flash-mod layouts.  Allow the
-loader link address to be overridden per image so the initramfs loader
-can sit above the decompressed kernel.
+Add the stock 4 MiB layout and the 8/16 MiB flash-mod layouts: flash.bin
+for the boot loader or a programmer (written at 0x20000) and sysupgrade.bin
+with metadata for OpenWrt, both ending the SquashFS with a JFFS2 marker
+for rootfs_data.  Allow the loader link address to be overridden per image
+so an initramfs loader can sit above the decompressed kernel.
 
 ---
 --- a/target/linux/realtek/image/Makefile
@@ -33,7 +35,7 @@ can sit above the decompressed kernel.
  		LOADER_DATA="$@" \
 --- a/target/linux/realtek/image/rtl8197f.mk
 +++ b/target/linux/realtek/image/rtl8197f.mk
-@@ -172,3 +172,83 @@
+@@ -172,3 +172,94 @@
    IMAGE/squashfs-spi-full.bin := append-kernel | rtl8197f-image | append-rtl8197f-rootfs | rtl8197f-firmware-budget | pad-rootfs | rtl8197f-firmware-budget | rtl8197f-tenda-mw5-fullflash
  endef
  TARGET_DEVICES += tenda_nova_mw5
@@ -81,13 +83,24 @@ can sit above the decompressed kernel.
 +  RTL8197F_HEADER_SIZE := 16
 +  RTL8197F_KERNEL_CMDLINE := console=ttyS0,115200n8 lpj=5000000 rootfstype=squashfs clk_ignore_unused
 +  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools luci luci-theme-footstrap
-+  IMAGES := flash.bin
++  # flash.bin is written at 0x20000 by the boot loader or a programmer,
++  # sysupgrade.bin (the same plus metadata) from OpenWrt.  pad-rootfs puts
++  # the JFFS2 marker right after the SquashFS, where the rtl8197f-fw split
++  # places rootfs_data.
++  IMAGES := flash.bin sysupgrade.bin
 +  IMAGE/flash.bin := \
 +    append-kernel | \
 +    rtl8197f-image | \
 +    append-rootfs | \
-+    pad-to 64k | \
++    pad-rootfs | \
 +    check-size
++  IMAGE/sysupgrade.bin := \
++    append-kernel | \
++    rtl8197f-image | \
++    append-rootfs | \
++    pad-rootfs | \
++    check-size | \
++    append-metadata
 +endef
 +
 +define Device/tenda_ac8-v1

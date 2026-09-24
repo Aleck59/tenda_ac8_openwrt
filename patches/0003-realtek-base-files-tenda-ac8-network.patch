@@ -1,6 +1,22 @@
-Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network layout
+Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network, LEDs and sysupgrade
 
 ---
+--- a/target/linux/realtek/base-files/etc/board.d/01_leds
++++ b/target/linux/realtek/base-files/etc/board.d/01_leds
+@@ -7,6 +7,13 @@
+ board_config_update
+ 
+ case $board in
++tenda,ac8-v1|\
++tenda,ac8-v1-8m|\
++tenda,ac8-v1-16m)
++	ucidef_set_led_netdev "wan" "WAN" "blue:wan" "wan" "link tx rx"
++	ucidef_set_led_netdev "lan" "LAN" "blue:lan" "br-lan" "link tx rx"
++	ucidef_set_led_netdev "wlan" "WLAN" "blue:wlan" "wlan0" "link tx rx"
++	;;
+ xiaomi,r4-rd05)
+         # RTL8197F/RD05 GPIO LED assignments are not validated yet.
+         # Keep first-boot defaults empty to avoid driving unknown pins.
 --- a/target/linux/realtek/base-files/etc/board.d/02_network
 +++ b/target/linux/realtek/base-files/etc/board.d/02_network
 @@ -54,6 +54,16 @@
@@ -47,3 +63,32 @@ Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network layout
  hpe,1920-8g|\
  hpe,1920-8g-poe-65w|\
  hpe,1920-8g-poe-180w|\
+--- a/target/linux/realtek/base-files/lib/upgrade/platform.sh
++++ b/target/linux/realtek/base-files/lib/upgrade/platform.sh
+@@ -20,6 +20,16 @@
+ }
+ 
+ platform_check_image() {
++	case "$(board_name)" in
++	tenda,ac8-v1*)
++		# cs6c header of the Realtek boot loader: the image is written to
++		# the firmware partition at 0x20000 as it is.
++		[ "$(get_magic_long "$1")" = "63733663" ] || {
++			echo "Invalid image type: no cs6c header."
++			return 1
++		}
++		;;
++	esac
+ 	return 0
+ }
+ 
+@@ -32,7 +42,8 @@
+ 	tenda,lynx-rtl8197f)
+                 PART_NAME="kernel:rootfs"
+                 ;;
+-        tenda,nova-mw5)
++        tenda,nova-mw5|\
++        tenda,ac8-v1*)
+                 PART_NAME="firmware"
+                 ;;
+         esac

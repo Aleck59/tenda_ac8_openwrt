@@ -1,0 +1,72 @@
+Subject: [PATCH] mtdsplit: rtl8197f: add rootfs_data when the firmware is writable
+
+Boards that open their firmware partition for writes (the Tenda AC8 v1
+8/16 MiB profiles) need an overlay partition for the JFFS2 overlay and
+for sysupgrade to keep settings.  Place "rootfs_data" in the erase blocks
+after the SquashFS, where pad-rootfs puts the deadc0de marker.  Read-only
+firmware partitions (MW5) keep the plain kernel/rootfs split.
+
+---
+--- a/target/linux/generic/files/drivers/mtd/mtdsplit/mtdsplit_rtl8197f.c
++++ b/target/linux/generic/files/drivers/mtd/mtdsplit/mtdsplit_rtl8197f.c
+@@ -6,6 +6,10 @@
+  * Tenda RTL8197F images that length includes the optional bytes between the
+  * logical 16-byte header and the executable payload, plus the final checksum.
+  * The SquashFS image starts exactly at 0x10 + len.
++ *
++ * When the firmware partition is writable, the erase blocks after the
++ * SquashFS become "rootfs_data" for the JFFS2 overlay; images end the
++ * SquashFS with a pad-rootfs (deadc0de) marker at that boundary.
+  */
+ 
+ #include <linux/init.h>
+@@ -19,7 +23,9 @@
+ 
+ #include "mtdsplit.h"
+ 
+-#define RTL8197F_NR_PARTS 2
++#define RTL8197F_NR_PARTS 3
++/* Fewer free erase blocks than this are no use to JFFS2. */
++#define RTL8197F_MIN_DATA_BLOCKS 4
+ 
+ struct rtl8197f_img_header {
+ 	u8 signature[4];
+@@ -42,8 +48,10 @@
+ 	struct rtl8197f_img_header hdr;
+ 	struct mtd_partition *parts;
+ 	size_t retlen;
+-	u64 rootfs_offset;
++	u64 rootfs_offset, data_offset, data_end;
++	size_t squashfs_len;
+ 	u32 image_len;
++	int nr_parts = 2;
+ 	int err;
+ 
+ 	err = mtd_read(master, 0, sizeof(hdr), &retlen, (void *)&hdr);
+@@ -78,8 +86,25 @@
+ 	pr_info("rtl8197f-fw: %s split kernel=0x%llx rootfs=0x%llx\n",
+ 		master->name, rootfs_offset, rootfs_offset);
+ 
++	if ((master->flags & MTD_WRITEABLE) &&
++	    !mtd_get_squashfs_len(master, rootfs_offset, &squashfs_len)) {
++		data_offset = mtd_roundup_to_eb(rootfs_offset + squashfs_len,
++						master);
++		data_end = mtd_rounddown_to_eb(master->size, master);
++		if (data_end > data_offset &&
++		    data_end - data_offset >=
++		    (u64)RTL8197F_MIN_DATA_BLOCKS * master->erasesize) {
++			parts[2].name = ROOTFS_SPLIT_NAME;
++			parts[2].offset = data_offset;
++			parts[2].size = data_end - data_offset;
++			nr_parts = 3;
++			pr_info("rtl8197f-fw: %s rootfs_data=0x%llx+0x%llx\n",
++				master->name, data_offset, data_end - data_offset);
++		}
++	}
++
+ 	*pparts = parts;
+-	return RTL8197F_NR_PARTS;
++	return nr_parts;
+ }
+ 
+ static const struct of_device_id mtdsplit_rtl8197f_of_match_table[] = {

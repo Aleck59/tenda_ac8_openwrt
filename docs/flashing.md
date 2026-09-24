@@ -54,11 +54,16 @@ dd if=ac8-stock-1.bin bs=1 skip=$((0x20000)) count=16 2>/dev/null | xxd
 
 ## 3. Запись во флеш
 
-Флеш в этой сборке смонтирован **только для чтения**: настройки не
-сохраняются после перезагрузки, `sysupgrade` не работает. Обновление
-делается так же, как первая установка.
+В профилях 8 и 16 МБ OpenWrt пишет во флеш только в область прошивки
+(`0x20000` до конца без последних 128 КБ); загрузчик с данными платы
+остаётся недоступным. Настройки хранятся в JFFS2 после SquashFS
+(`rootfs_data`) и переживают перезагрузку, обновление делается из LuCI.
 
-### Вариант А: программатор (рекомендуется, особенно при замене микросхемы)
+Сборки до `ac8-20260924-8` включительно монтировали флеш только для
+чтения: на эту версию переходите программатором (вариант А) или из
+загрузчика (вариант Б). Дальше — из LuCI (вариант В).
+
+### Вариант А: программатор (первая установка, замена микросхемы)
 
 В Releases есть готовый `*-{8m,16m}-fullflash.bin`: загрузчик из
 `boot/tenda_ac8-v1-boot.bin` репозитория + OpenWrt на всю микросхему
@@ -75,7 +80,7 @@ flashrom -p ch341a_spi -w openwrt-*-tenda_ac8-v1-16m-fullflash.bin
 ```sh
 python3 make-fullflash.py \
     --backup ac8-stock-1.bin \
-    --firmware openwrt-*-tenda_ac8-v1-16m-squashfs-flash.bin \
+    --firmware openwrt-*-tenda_ac8-v1-16m-squashfs-sysupgrade.bin \
     --size 16M --output ac8-openwrt-16m-full.bin
 flashrom -p ch341a_spi -w ac8-openwrt-16m-full.bin
 ```
@@ -84,13 +89,12 @@ flashrom -p ch341a_spi -w ac8-openwrt-16m-full.bin
 по смещению `0x20000`. Для новой микросхемы выполните это до пайки, для
 стоковой — на месте клипсой.
 
-Обновить только прошивку, не трогая загрузчик, можно образом
-`*-squashfs-flash.bin`: `make-fullflash.py` без `--backup`/`--boot` делает
-из него образ размером с микросхему и файл `.layout`, который пишется
-по регионам:
+Обновить только прошивку, не трогая загрузчик: `make-fullflash.py` без
+`--backup`/`--boot` делает образ размером с микросхему и файл `.layout`,
+который пишется по регионам:
 
 ```sh
-python3 make-fullflash.py --firmware openwrt-*-8m-squashfs-flash.bin \
+python3 make-fullflash.py --firmware openwrt-*-8m-squashfs-sysupgrade.bin \
     --size 8M --output ac8-update-8m.bin
 flashrom -p ch341a_spi -l ac8-update-8m.bin.layout -i firmware -w ac8-update-8m.bin
 ```
@@ -98,9 +102,9 @@ flashrom -p ch341a_spi -l ac8-update-8m.bin.layout -i firmware -w ac8-update-8m.
 Так меняется только область `firmware` (`0x20000` до конца без последних
 128 КБ). Без `-l ... -i firmware` загрузчик будет стёрт.
 
-### Вариант Б: из загрузчика (без программатора, риск выше)
+### Вариант Б: из загрузчика (без программатора)
 
-Загрузите `*-squashfs-flash.bin` в RAM по TFTP. В консоли загрузчика:
+Загрузите `*-squashfs-sysupgrade.bin` в RAM по TFTP. В консоли загрузчика:
 
 ```text
 <RealTek>AUTOBURN 0
@@ -111,7 +115,7 @@ flashrom -p ch341a_spi -l ac8-update-8m.bin.layout -i firmware -w ac8-update-8m.
 образ во флеш. На ПК:
 
 ```sh
-tftp -m binary 192.168.1.6 -c put openwrt-*-tenda_ac8-v1-8m-squashfs-flash.bin
+tftp -m binary 192.168.1.6 -c put openwrt-*-tenda_ac8-v1-8m-squashfs-sysupgrade.bin
 ```
 
 Затем запишите образ командой `FLW`:
@@ -121,13 +125,27 @@ tftp -m binary 192.168.1.6 -c put openwrt-*-tenda_ac8-v1-8m-squashfs-flash.bin
 ```
 
 - `20000` — смещение во флеше, **не меньше `20000`**: ниже лежит загрузчик;
-- размер — длина файла в hex, она кратна `0x10000`. Например, файл на
-  6 291 456 байт — это `600000`;
+- размер — длина файла в hex (`printf '%x\n' $(stat -c %s файл)`);
 - загрузчик попросит подтверждение.
 
 Автозапись (`AUTOBURN 1` + `tftp put`) для этого образа не проверялась:
 загрузчик Realtek может записать только сегмент ядра с заголовком
 `cs6c` и пропустить SquashFS за ним.
+
+### Вариант В: из LuCI (обновление с этой версии)
+
+**Система → Резервное копирование / Прошивка → Установить новую
+прошивку**, файл `*-squashfs-sysupgrade.bin` своего профиля (8 или 16 МБ).
+«Сохранить настройки» работает. Из консоли то же самое:
+
+```sh
+sysupgrade /tmp/openwrt-realtek-rtl8197f-tenda_ac8-v1-8m-squashfs-sysupgrade.bin
+```
+
+Запись во флеш на AC8 работает через экспериментальный драйвер порта.
+Первый признак, что она исправна, — настройки остаются после
+перезагрузки. Если обновление оборвётся, загрузчик останется целым:
+восстановление — вариантом Б или А.
 
 ## 4. Проверка после загрузки
 

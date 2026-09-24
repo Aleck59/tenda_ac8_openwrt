@@ -17,6 +17,16 @@
 &spirom0 {
 	reg = <0x10000000 0x01000000>, <0x00143000 0x1000>;
 
+	/*
+	 * Program/erase are accepted only inside the firmware partition:
+	 * sysupgrade rewrites it and the JFFS2 overlay lives in its
+	 * rootfs_data tail, while the boot loader with the board data and
+	 * the last 128 KiB stay out of reach of the driver.
+	 */
+	realtek,writable-offset = <0x00020000>;
+	realtek,writable-size = <0x00fc0000>;
+	realtek,spi-clock-div = <8>;
+
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;

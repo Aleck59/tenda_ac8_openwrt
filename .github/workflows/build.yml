@@ -30,6 +30,8 @@ on:
 
 permissions:
   contents: write
+  # Delete superseded caches, see "Delete superseded caches".
+  actions: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -68,26 +70,28 @@ jobs:
       - name: Configure
         run: ./scripts/configure.sh openwrt "$DEVICES" "$EXTRA_PACKAGES"
 
-      - name: Cache downloads
-        uses: actions/cache@v4
-        with:
-          path: openwrt/dl
-          key: dl-${{ hashFiles('base.env', 'configs/**', 'patches/**') }}-${{ github.run_id }}
-          restore-keys: |
-            dl-${{ hashFiles('base.env', 'configs/**', 'patches/**') }}-
-            dl-
-
-      # Host tools and the cross toolchain take ~35 of the ~55 minutes and
-      # depend only on the pinned base tree and on the target and compiler
-      # settings, not on packages or rootfs options, so they are reused
-      # between runs.
-      - name: Toolchain cache key
-        id: toolchain-key
+      # Source archives only change with the base tree, the feeds and the
+      # patches: one cache per combination.  Host tools and the cross
+      # toolchain take ~35 of the ~55 minutes and depend only on the pinned
+      # base tree and on the target and compiler settings, not on packages
+      # or rootfs options.
+      - name: Cache keys
+        id: cache-keys
+        env:
+          DL_HASH: ${{ hashFiles('base.env', 'scripts/prepare.sh', 'configs/**', 'patches/**') }}
         run: |
           sum=$( { cat base.env
             grep -E '^CONFIG_(TARGET_BOARD|TARGET_SUBTARGET|TARGET_ARCH_PACKAGES|CPU_TYPE|ARCH|TARGET_OPTIMIZATION|EXTRA_OPTIMIZATION|SOFT_FLOAT|USE_MIPS16|USE_MUSL|USE_GLIBC|BINUTILS_|GCC_|LIBC|TARGET_SUFFIX|TOOLCHAINOPTS|EXTERNAL_TOOLCHAIN)' openwrt/.config
           } | sha256sum | cut -c1-40)
-          echo "key=toolchain-${{ runner.os }}-$sum" >> "$GITHUB_OUTPUT"
+          echo "dl=dl-$DL_HASH" >> "$GITHUB_OUTPUT"
+          echo "toolchain=toolchain-${{ runner.os }}-$sum" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ${{ steps.cache-keys.outputs.dl }}
+          restore-keys: dl-
 
       - name: Cache tools and toolchain
         id: cache-toolchain
@@ -96,7 +100,7 @@ jobs:
           path: |
             openwrt/staging_dir/host
             openwrt/staging_dir/toolchain-*
-          key: ${{ steps.toolchain-key.outputs.key }}
+          key: ${{ steps.cache-keys.outputs.toolchain }}
 
       # A fresh checkout makes every source file newer than the cached build
       # stamps; touch them so make treats the restored tools as up to date.
@@ -106,6 +110,26 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit == 'true'
         working-directory: openwrt
         run: find staging_dir/host/stamp staging_dir/toolchain-*/stamp -type f -exec touch {} +
+
+      # Keep only the caches of the current keys; the ones they replace
+      # would otherwise stay until GitHub evicts them after a week unused.
+      - name: Delete superseded caches
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DL_KEY: ${{ steps.cache-keys.outputs.dl }}
+          TOOLCHAIN_KEY: ${{ steps.cache-keys.outputs.toolchain }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --limit 100 \
+              --json id,key --jq '.[] | "\(.id) \(.key)"' |
+          while read -r id key; do
+            case "$key" in
+              "$DL_KEY"|"$TOOLCHAIN_KEY") ;;
+              dl-*|toolchain-*)
+                echo "deleting $key"
+                gh cache delete "$id" --repo "$GITHUB_REPOSITORY" ;;
+            esac
+          done
 
       - name: Download sources
         working-directory: openwrt
@@ -125,7 +149,8 @@ jobs:
           make -j"$(nproc)" || make -j1 V=s
 
       # The release carries only what gets written to the router: the full
-      # chip image with the boot loader and the update image for 0x20000.
+      # chip image with the boot loader (built from flash.bin) and the
+      # sysupgrade image for LuCI.
       - name: Collect images
         id: collect
         run: |
@@ -134,7 +159,8 @@ jobs:
           for dev in $DEVICES; do
             fw=$(ls "$src"/*-rtl8197f-"$dev"-squashfs-flash.bin 2>/dev/null) ||
               { echo "::warning::no flash image for $dev (probably does not fit the flash)"; continue; }
-            cp "$fw" out/
+            cp "$src"/*-rtl8197f-"$dev"-squashfs-sysupgrade.bin out/ ||
+              { echo "::error::no sysupgrade image for $dev"; exit 1; }
             case "$dev" in
               *-16m) size=16M ;;
               *-8m) size=8M ;;
