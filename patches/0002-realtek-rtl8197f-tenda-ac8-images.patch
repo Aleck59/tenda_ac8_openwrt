@@ -82,7 +82,7 @@ so an initramfs loader can sit above the decompressed kernel.
 +  RTL8197F_BURNADDR := 0x00020000
 +  RTL8197F_HEADER_SIZE := 16
 +  RTL8197F_KERNEL_CMDLINE := console=ttyS0,115200n8 lpj=5000000 rootfstype=squashfs clk_ignore_unused
-+  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools luci luci-theme-footstrap
++  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools wpad-basic-mbedtls luci luci-theme-footstrap
 +  # flash.bin is written at 0x20000 by the boot loader or a programmer,
 +  # sysupgrade.bin (the same plus metadata) from OpenWrt.  pad-rootfs puts
 +  # the JFFS2 marker right after the SquashFS, where the rtl8197f-fw split

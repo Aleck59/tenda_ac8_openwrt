@@ -1,0 +1,19 @@
+From: Tenda AC8 OpenWrt port
+Subject: net: export dev_change_name for the rtl8192cd vendor driver
+
+The Realtek rtl8192cd driver pre-creates its VAP and repeater netdevs and
+swaps their names when cfg80211 asks for an interface of the other type
+(realtek_cfg80211_add_iface -> rtk_change_netdev_name).  The Realtek SDK
+kernels export dev_change_name() for that; do the same.  The caller holds
+RTNL (nl80211 NEW_INTERFACE).
+---
+--- a/net/core/dev.c
++++ b/net/core/dev.c
+@@ -1344,6 +1344,7 @@
+ 
+ 	return err;
+ }
++EXPORT_SYMBOL(dev_change_name);
+ 
+ /**
+  *	dev_set_alias - change ifalias of a device

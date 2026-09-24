@@ -1,0 +1,64 @@
+From: Tenda AC8 OpenWrt port
+Subject: wifi-scripts: interface names for the rtl8192cd driver
+
+The Realtek rtl8192cd driver creates its netdevs at probe time (wlanN,
+wlanN-1.., the repeater station) and add_virtual_intf only hands those
+out by name, so the phyN-apM names of OpenWrt 23.05+ cannot work.  When
+no ifname is configured and the phy belongs to rtl8192cd, name the
+interfaces like OpenWrt did before 23.05: the root to the first AP (or
+to the first interface of a radio without APs), then wlanN-1, wlanN-2..
+
+PKG_RELEASE goes above the official builds so that "opkg upgrade" from
+the OpenWrt feeds does not replace the patched script.
+---
+--- a/package/network/config/wifi-scripts/Makefile
++++ b/package/network/config/wifi-scripts/Makefile
+@@ -9,7 +9,8 @@
+ 
+ PKG_NAME:=wifi-scripts
+ PKG_VERSION:=1.0
+-PKG_RELEASE:=1
++# Above the official 24.10 builds, so opkg keeps the rtl8192cd interface names.
++PKG_RELEASE:=101
+ PKG_LICENSE:=GPL-2.0
+ 
+ PKG_MAINTAINER:=Felix Fietkau <nbd@nbd.name>
+--- a/package/network/config/wifi-scripts/files/lib/netifd/wireless/mac80211.sh
++++ b/package/network/config/wifi-scripts/files/lib/netifd/wireless/mac80211.sh
+@@ -669,11 +669,36 @@
+ 	eval "ifname=\"$prefix$type\${idx_$type:-0}\"; idx_$type=\$((\${idx_$type:-0 } + 1))"
+ }
+ 
++# The Realtek rtl8192cd driver (Tenda AC8) creates its netdevs itself and
++# can only hand those out: wlanN (root), wlanN-1.. (VAPs and the repeater
++# station).  Give them out like OpenWrt did before 23.05, the root to the
++# first AP, or to the first interface of a radio without APs.
++mac80211_rtl8192cd_ifname() {
++	local dir="/sys/class/ieee80211/$phy/device/net" root= n
++
++	[ -d /sys/module/rtl8192cd ] && [ -d "$dir" ] || return 1
++	for n in $(ls "$dir"); do
++		case "$n" in
++		wlan[0-9]|wlan[0-9][0-9]) root="$n";;
++		esac
++	done
++	[ -n "$root" ] || return 1
++
++	if [ -z "$rtk_root_used" ] && { [ "$mode" = ap ] || [ -z "$has_ap" ]; }; then
++		rtk_root_used=1
++		ifname="$root"
++	else
++		rtk_vif_idx=$((${rtk_vif_idx:-0} + 1))
++		ifname="$root-$rtk_vif_idx"
++	fi
++}
++
+ mac80211_prepare_vif() {
+ 	json_select config
+ 
+ 	json_get_vars ifname mode ssid wds powersave macaddr enable wpa_psk_file sae_password_file vlan_file
+ 
++	[ -n "$ifname" ] || mac80211_rtl8192cd_ifname
+ 	[ -n "$ifname" ] || {
+ 		local prefix;
+ 

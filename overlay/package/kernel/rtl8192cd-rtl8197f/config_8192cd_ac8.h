@@ -38,6 +38,5 @@
 #define CONFIG_OPENWRT_SDK 1
 #define _LITTLE_ENDIAN_ 1
 #define NOT_RTK_BSP 1
-#define CONFIG_MW5_LEGACY_WEXT 1
 #define CONFIG_MW5_NO_LED 1
 #endif

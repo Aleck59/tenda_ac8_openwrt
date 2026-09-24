@@ -1,0 +1,43 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Load the experimental rtl8192cd Wi-Fi driver of the Tenda AC8 once the
+# rest of the system (and LAN) is up, then let netifd set up the radios.
+#
+# A load that never finishes (oops, hang, watchdog reset) leaves $GUARD
+# behind, and the following boots keep Wi-Fi off so the router stays
+# reachable over LAN.  Remove $GUARD to try again:
+#
+#	rm /etc/rtl8197f-wlan.loading; /etc/init.d/rtl8197f-wlan start
+
+START=99
+
+GUARD=/etc/rtl8197f-wlan.loading
+LOG=/tmp/rtl8197f-wlan-load.log
+
+start() {
+	grep -q '^rtl8192cd ' /proc/modules && return 0
+
+	if [ -e "$GUARD" ]; then
+		logger -t rtl8197f-wlan "the last driver load did not finish, Wi-Fi stays off; remove $GUARD to retry"
+		return 1
+	fi
+
+	(
+		touch "$GUARD"
+		sync
+		/usr/sbin/rtl8197f-wlan-load --dual >"$LOG" 2>&1
+		rc=$?
+		rm -f "$GUARD"
+		sync
+		logger -t rtl8197f-wlan "driver load finished with rc=$rc, log in $LOG"
+		[ "$rc" = 0 ] || exit 0
+
+		# The phys appeared after netifd started: add them to
+		# /etc/config/wireless (new radios start disabled) and bring
+		# up the enabled ones.
+		sleep 2
+		/sbin/wifi config
+		/sbin/wifi up
+	) </dev/null >/dev/null 2>&1 &
+}
