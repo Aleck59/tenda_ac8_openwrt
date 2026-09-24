@@ -1,0 +1,121 @@
+name: Publish packages (Tenda AC8 v1)
+
+# The opkg feed of a firmware release: kernel modules, the Wi-Fi driver,
+# base-files, the LuCI theme and the patched wifi-scripts.  Everything
+# else installs from the official OpenWrt feeds (configs/packages.env).
+#
+# The packages themselves are compiled by build.yml together with the
+# images: OpenWrt's kernel version hash depends on the selected module
+# packages, so modules only install on the image built with them, and the
+# index is signed with the build key that image trusts.  This workflow
+# takes the feed of a successful build and publishes it as the release
+# <image tag>-packages, the URL the images carry in distfeeds.conf.
+
+on:
+  workflow_run:
+    workflows: ["Build OpenWrt (Tenda AC8 v1)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID of a successful build run (the number in its URL .../actions/runs/<id>)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: packages-${{ inputs.run_id || github.event.workflow_run.id }}
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+    steps:
+      - name: Find the feed of the build
+        id: feed
+        run: |
+          name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.expired | not) | .name | select(startswith("packages-"))' | head -n1)
+          if [ -z "$name" ]; then
+            echo "::error::build run $RUN_ID has no packages-* artifact (older than this workflow, or expired)"
+            exit 1
+          fi
+          tag=${name#packages-}
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)
+          echo "artifact=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # Only for images that were published.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::no release $tag: the images of run $RUN_ID were not published, nor is their feed"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.feed.outputs.publish == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.feed.outputs.sha }}
+          sparse-checkout: configs
+
+      - name: Download the feed
+        if: steps.feed.outputs.publish == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.feed.outputs.artifact }}
+          path: feed
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Release notes
+        if: steps.feed.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.feed.outputs.tag }}
+        run: |
+          count=$(ls feed/*.ipk | wc -l)
+          # A release holds at most 1000 files.
+          if [ $((count + 4)) -gt 1000 ]; then
+            echo "::error::$count packages do not fit into one release, trim configs/kmods-exclude.txt"
+            exit 1
+          fi
+          cat > body.md <<EOF
+          Репозиторий opkg для прошивки [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG):
+          модули ядра (\`kmod-*\`), Wi-Fi-драйвер, \`base-files\`, тема LuCI
+          footstrap и \`wifi-scripts\` с именами интерфейсов для \`rtl8192cd\`.
+          Всего пакетов: $count.
+
+          Прошивка $TAG уже подключает его в \`/etc/opkg/distfeeds.conf\`
+          (фид \`tenda_ac8\`), остальные пакеты ставятся из официального
+          OpenWrt $(sed -n 's/^PACKAGES_RELEASE=//p' configs/packages.env) для mipsel_24kc:
+
+          \`\`\`sh
+          opkg update
+          opkg install kmod-wireguard wireguard-tools luci-proto-wireguard
+          \`\`\`
+
+          Модули ядра подходят только к прошивке $TAG: версия ядра в OpenWrt
+          зависит от набора модулей в сборке. Индекс подписан ключом сборки,
+          который есть в этой прошивке.
+          EOF
+          cat body.md
+
+      - name: Publish
+        if: steps.feed.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.feed.outputs.tag }}-packages
+          target_commitish: ${{ steps.feed.outputs.sha }}
+          name: Пакеты для ${{ steps.feed.outputs.tag }}
+          prerelease: true
+          make_latest: false
+          body_path: body.md
+          files: feed/*

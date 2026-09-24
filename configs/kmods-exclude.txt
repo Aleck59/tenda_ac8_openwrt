@@ -1,0 +1,24 @@
+# Kernel module packages left out of the package feed (CONFIG_ALL_KMODS
+# builds every other one, see scripts/configure.sh).  One extended regex
+# per line, matched against the whole package name.  The Tenda AC8 has no
+# USB port, no PCI slot and no audio or video, so drivers for those only
+# cost build time; the feed stays under the 1000 files of a GitHub release.
+# The Wi-Fi drivers of the mac80211 and mt76 packages are always left out
+# (configure.sh), whatever this list says.
+
+# Buses, storage and peripherals the board does not have
+kmod-(usb|usbip|usb2|usb3)(-.*)?
+kmod-(ata|scsi|nvme|mmc|sdhci|md|dm|block2mtd|cdrom|aoe|iscsi|firewire|thunderbolt)(-.*)?
+kmod-(sound|snd|ac97|video|drm|fb|backlight|media|v4l2loopback)(-.*)?
+kmod-(input|hid|joydev|evdev|keys|gpio-button)(-.*)?
+kmod-(i2c|spi|w1|iio|industrialio|hwmon|pmbus|can|mhi|mux|parport|ppdev|lp|pps|ptp|tpm|eeprom|rtc)(-.*)?
+kmod-(bluetooth|btmrvl|btsdio|bt|ieee802154|mac802154|6lowpan|at86rf230|atusb|cc2520|ca8210|mrf24j40|fakelb)(-.*)?
+kmod-(misdn|hfcpci|hfcmulti|dahdi|solos|atm|atmtcp|ipoa|pppoa|br2684)(-.*)?
+kmod-(wwan|rmnet|qrtr|chaoskey|ramoops|pstore|lkdtm|mtdtests|mtdram|mtdoops)(-.*)?
+
+# Ethernet NICs and PHYs of other boards
+kmod-(e100|e1000|e1000e|igb|igbvf|igc|ixgbe|ixgbevf|i40e|iavf|ice|r8169|r8101|r8125|r8126|r8127|r8168|tg3|bnx2|bnx2x|bnxt|be2net|mlx4|mlx5|mlxfw|qlcnic|niu|sfc|sky2|skge|sis190|sis900|natsemi|pcnet32|tulip|3c59x|8139too|8139cp|forcedeth|atl1|atl1c|atl1e|atl2|alx|atlantic|et131x|lan743x|vmxnet3|ag71xx|b44|ethoc|dm9000|enc28j60|ne2k|r6040|via|ssb|bcma|sfp|phy|google|imx2|imx7)(-.*)?
+
+# Wi-Fi chips other than the AC8's (rtl8192cd), other rtl8192cd variants
+kmod-(ath|ath5k|ath6kl|ath9k|ath10k|ath11k|ath12k|ar5523|carl9170|mt76|mt7601u|mt7603|mt7615|mt7663|mt7915|mt7916|mt7921|mt7925|mt7996|mt792x|rt2x00|rt2800|rt61pci|rt73usb|rtlwifi|rtl8xxxu|rtl8187|rtl8180|rtl8192c|rtl8192ce|rtl8192cu|rtl8192d|rtl8192de|rtl8192du|rtl8192se|rtl8723|rtl8723be|rtl8723bs|rtl8812au|rtl8821ae|rtw88|rtw89|rsi91x|brcmfmac|brcmsmac|brcmutil|b43|b43legacy|iwlwifi|iwl|mwifiex|mwl8k|mwlwifi|p54|libertas|wil6210|zd1211rw|plfxlc|qtnfmac|wl12xx|wl18xx|wlcore|mac80211-hwsim|owl-loader)(-.*)?
+kmod-rtl8192cd-rtl8197f-(mw5|rd05|ac23)

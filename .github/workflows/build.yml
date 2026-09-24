@@ -25,6 +25,8 @@ on:
       - "patches/**"
       - "scripts/prepare.sh"
       - "scripts/configure.sh"
+      - "scripts/distfeeds.sh"
+      - "scripts/make-feed.sh"
       - "scripts/make-fullflash.py"
       - "boot/**"
 
@@ -49,6 +51,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Known before the build: the images name the package feed of their
+      # release in /etc/opkg/distfeeds.conf.
+      - name: Release tag
+        id: tag
+        run: echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
@@ -69,6 +77,14 @@ jobs:
 
       - name: Configure
         run: ./scripts/configure.sh openwrt "$DEVICES" "$EXTRA_PACKAGES"
+
+      # Kernel modules and the AC8 packages from the feed of this build
+      # (published by packages.yml as <tag>-packages), the rest from the
+      # official OpenWrt release in configs/packages.env.
+      - name: Package feeds of the images
+        run: |
+          ./scripts/distfeeds.sh openwrt \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/${{ steps.tag.outputs.tag }}-packages"
 
       # Source archives only change with the base tree, the feeds and the
       # patches: one cache per combination.  Host tools and the cross
@@ -142,17 +158,23 @@ jobs:
           echo "CPU cores: $(nproc), RAM: $(free -g | awk '/Mem:/ {print $2}') GiB"
           make -j"$(nproc)" tools/install toolchain/install || make -j1 V=s tools/install toolchain/install
 
+      # IGNORE_ERRORS=m: a kernel module that does not build for this
+      # target is left out of the feed instead of failing the run.  The
+      # packages of the images are =m too (per-device rootfs), but a missing
+      # one still fails the image step.
       - name: Build firmware
         working-directory: openwrt
         run: |
+          set -o pipefail
           echo "CPU cores: $(nproc), toolchain from cache: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}"
-          make -j"$(nproc)" || make -j1 V=s
+          make -j"$(nproc)" IGNORE_ERRORS=m 2>&1 | tee build.log || make -j1 V=s IGNORE_ERRORS=m
+          grep -oE 'ERROR: package/.* failed to build.*' build.log | sort -u |
+            sed 's/^/::warning::/' || true
 
       # The release carries only what gets written to the router: the full
       # chip image with the boot loader (built from flash.bin) and the
       # sysupgrade image for LuCI.
       - name: Collect images
-        id: collect
         run: |
           src=openwrt/bin/targets/realtek/rtl8197f
           mkdir -p out
@@ -188,13 +210,21 @@ jobs:
             echo '```'
           } > release-body.md
           ls -l out
-          echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          ./scripts/make-feed.sh openwrt feed
 
       - name: Upload images
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-tenda-ac8-${{ github.run_number }}
           path: out/
+
+      # Published by packages.yml once this run succeeds.
+      - name: Upload package feed
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ steps.tag.outputs.tag }}
+          path: feed/
+          retention-days: 14
 
       - name: Upload build logs
         if: failure()
@@ -210,9 +240,9 @@ jobs:
         if: github.event_name == 'push' || inputs.release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.collect.outputs.tag }}
+          tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: OpenWrt 24.10 для Tenda AC8 v1 (${{ steps.collect.outputs.tag }})
+          name: OpenWrt 24.10 для Tenda AC8 v1 (${{ steps.tag.outputs.tag }})
           prerelease: true
           body_path: release-body.md
           files: out/*.bin
