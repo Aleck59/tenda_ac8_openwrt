@@ -1,0 +1,68 @@
+From: Tenda AC8 OpenWrt port
+Subject: net: dsa: realtek: rtl8365mb: Tenda AC8 OEM switch init sequence
+
+rtk_switch_init() of the Tenda AC8 v1 stock firmware (eCos, the RTL8367RB
++ RTL8197F path of the Realtek SDK) writes the port LED mode, flow control
+thresholds and the EMI/SSC registers after the jam table.  Apply the same
+values when the switch node has "realtek,rtl8197f-ac8-oem-init", like the
+existing Tenda MW5 sequence; only the thresholds differ from the MW5.
+---
+--- a/drivers/net/dsa/realtek/rtl8365mb.c
++++ b/drivers/net/dsa/realtek/rtl8365mb.c
+@@ -2581,6 +2581,46 @@
+ 	return 0;
+ }
+ 
++/* Tenda AC8 v1: rtk_switch_init() of its stock eCos firmware, the same as the
++ * RTL8367RB + RTL8197F path of the Realtek SDK: port LEDs, the flow control
++ * thresholds of the 802.11ac logo test and the EMI (SSC) setup.
++ */
++static int rtl8365mb_ac8_board_init(struct realtek_priv *priv)
++{
++	static const struct rtl8365mb_jam_tbl_entry ac8[] = {
++		{ 0x1b03, 0x0936 },
++		{ 0x121f, 0x01d6 },
++		{ 0x1220, 0x01b8 },
++		{ 0x1221, 0x01cc },
++		{ 0x1222, 0x01ae },
++		{ 0x1223, 0x0302 },
++		{ 0x1224, 0x02e4 },
++		{ 0x1225, 0x02d0 },
++		{ 0x1226, 0x02a8 },
++		{ 0x13c3, 0x0000 },
++		{ 0x13c4, 0x0000 },
++		{ 0x1d53, 0x0001 },
++		{ 0x1d55, 0x000f },
++		{ 0x1d54, 0x05fa },
++		{ 0x1d52, 0x2473 },
++		{ 0x1d5a, 0x0001 },
++		{ 0x1d5c, 0x000f },
++		{ 0x1d5b, 0x05fa },
++		{ 0x1d59, 0x2473 },
++	};
++	int ret;
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(ac8); i++) {
++		ret = regmap_write(priv->map, ac8[i].reg, ac8[i].val);
++		if (ret)
++			return ret;
++	}
++
++	dev_info(priv->dev, "applied Tenda AC8 OEM LED/threshold/SSC sequence\n");
++	return 0;
++}
++
+ static int rtl8365mb_sdk_post_jam_init(struct realtek_priv *priv)
+ {
+ 	struct rtl8365mb *mb = priv->chip_data;
+@@ -2599,6 +2639,9 @@
+ 	if (of_property_read_bool(priv->dev->of_node,
+ 				  "realtek,rtl8197f-mw5-oem-init"))
+ 		return rtl8365mb_mw5_board_init(priv);
++	if (of_property_read_bool(priv->dev->of_node,
++				  "realtek,rtl8197f-ac8-oem-init"))
++		return rtl8365mb_ac8_board_init(priv);
+ 
+ 	return 0;
+ }

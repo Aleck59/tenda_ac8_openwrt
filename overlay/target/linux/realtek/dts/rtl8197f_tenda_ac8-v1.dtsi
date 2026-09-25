@@ -26,7 +26,8 @@
  *     rtl8_4t tag chosen by ac8-ethtest);
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
- *   - LED GPIOs (taken from the Tenda AC10U v1) and button GPIOs;
+ *   - SYS/WPS LEDs and the button (GPIOs from the stock AC8 v1 eCos
+ *     defaults, see the leds node);
  *   - the location of the Tenda config block at the end of the flash.
  *
  * The stock 4 MiB profile exports the flash read-only.  The 8/16 MiB
@@ -61,11 +62,12 @@
 	};
 
 	/*
-	 * LED GPIOs of the Tenda AC10U v1 (RTL8197F + RTL8367R, OpenWrt 18.06
-	 * rtkmipsel mach-ac10u.c), which the AC8 v1 shares according to its
-	 * owner: SYS H1 and WLAN E1 active low, WAN C7 and LAN D7 active high.
-	 * The AC10U buttons are left out: its WPS button is on H0, which is the
-	 * switch MDC on the AC8.
+	 * GPIOs from the defaults of the stock eCos firmware of the AC8 v1
+	 * (sys_led=gpio6, wps_led=gpio7, wps_button=gpio20, reset_gpio=20;
+	 * Realtek numbering A0 = 0): SYS on A6, WPS on A7, the WPS/RST button on
+	 * C4.  WLAN on E1 (its wireless driver drives it on the stock firmware)
+	 * is verified on the AC8.  The polarity of A6/A7 is not verified.  The
+	 * port LEDs belong to the RTL8367RB (realtek,rtl8197f-ac8-oem-init).
 	 */
 	leds {
 		compatible = "gpio-leds";
@@ -75,22 +77,16 @@
 		led_sys: led-0 {
 			function = LED_FUNCTION_STATUS;
 			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&gpio0 57 GPIO_ACTIVE_LOW>;	/* H1 */
+			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;	/* A6 */
 		};
 
 		led-1 {
-			function = LED_FUNCTION_WAN;
+			function = LED_FUNCTION_WPS;
 			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&gpio0 23 GPIO_ACTIVE_HIGH>;	/* C7 */
+			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;	/* A7 */
 		};
 
 		led-2 {
-			function = LED_FUNCTION_LAN;
-			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;	/* D7 */
-		};
-
-		led-3 {
 			function = LED_FUNCTION_WLAN;
 			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio0 33 GPIO_ACTIVE_LOW>;	/* E1 */
@@ -99,7 +95,15 @@
 
 	keys {
 		compatible = "gpio-keys";
-		status = "disabled";
+		pinctrl-names = "default";
+		pinctrl-0 = <&button_pins>;
+
+		reset {
+			label = "reset";
+			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;	/* C4, WPS/RST */
+			linux,code = <KEY_RESTART>;
+			debounce-interval = <60>;
+		};
 	};
 
 	rtl8367_smi: switch {
@@ -108,7 +112,8 @@
 		pinctrl-0 = <&rtl8367_smi_h0_g7_pins>;
 		mdc-gpios = <&gpio0 56 GPIO_ACTIVE_HIGH>;  /* SDK H0 */
 		mdio-gpios = <&gpio0 55 GPIO_ACTIVE_HIGH>; /* SDK G7 */
-		realtek,disable-leds;
+		/* rtk_switch_init() of the stock firmware: port LEDs, thresholds, SSC */
+		realtek,rtl8197f-ac8-oem-init;
 		status = "okay";
 
 		ports {
@@ -172,12 +177,15 @@
 		pinctrl-single,bits = <0x34 0x03300000 0x0ff00000>;
 	};
 
-	/* GPIO function of the LED pins, values from the rtkmipsel BSP. */
+	/* GPIO function of the pins, values from the Realtek 8197F BSP (gpio.c). */
 	led_pins: led-pins {
-		pinctrl-single,bits = <0x34 0x00020000 0x000f0000>,	/* H1 */
-				      <0x40 0x00000050 0x000000f0>,	/* C7 */
-				      <0x3c 0x00000070 0x000000f0>,	/* D7 */
+		pinctrl-single,bits = <0x00 0x00050000 0x000f0000>,	/* A6 */
+				      <0x00 0x00600000 0x00f00000>,	/* A7 */
 				      <0x44 0x10000000 0xf0000000>;	/* E1 */
+	};
+
+	button_pins: button-pins {
+		pinctrl-single,bits = <0x40 0x00020000 0x000f0000>;	/* C4 */
 	};
 };
 
