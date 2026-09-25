@@ -15,6 +15,10 @@ on:
         description: "Publish the images as a GitHub release"
         default: true
         type: boolean
+      packages:
+        description: "Also build every kernel module and publish the opkg feed <tag>-packages (~17 min more)"
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -42,6 +46,9 @@ concurrency:
 env:
   DEVICES: ${{ inputs.devices || 'tenda_ac8-v1-8m tenda_ac8-v1-16m' }}
   EXTRA_PACKAGES: ${{ inputs.extra_packages || '' }}
+  # The package feed only on request (manual run, "packages"): kernel
+  # modules only install on the image built with them, see docs/packages.md.
+  PACKAGE_FEED: ${{ inputs.packages && inputs.release && '1' || '' }}
 
 jobs:
   build:
@@ -51,8 +58,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Known before the build: the images name the package feed of their
-      # release in /etc/opkg/distfeeds.conf.
+      # Known before the build: images with a package feed name it in
+      # /etc/opkg/distfeeds.conf.
       - name: Release tag
         id: tag
         run: echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
@@ -78,13 +85,13 @@ jobs:
       - name: Configure
         run: ./scripts/configure.sh openwrt "$DEVICES" "$EXTRA_PACKAGES"
 
-      # Kernel modules and the AC8 packages from the feed of this build
-      # (published by packages.yml as <tag>-packages), the rest from the
-      # official OpenWrt release in configs/packages.env.
+      # Kernel modules and the AC8 packages from the feed of this build, if
+      # it has one (published by packages.yml as <tag>-packages), the rest
+      # from the official OpenWrt release in configs/packages.env.
       - name: Package feeds of the images
         run: |
           ./scripts/distfeeds.sh openwrt \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/${{ steps.tag.outputs.tag }}-packages"
+            ${PACKAGE_FEED:+"https://github.com/$GITHUB_REPOSITORY/releases/download/${{ steps.tag.outputs.tag }}-packages"}
 
       # Source archives only change with the base tree, the feeds and the
       # patches: one cache per combination.  Host tools and the cross
@@ -203,6 +210,19 @@ jobs:
           {
             cat docs/release-notes.md
             echo
+            if [ -n "$PACKAGE_FEED" ]; then
+              echo "**Пакеты.** \`opkg\` и **Система → Программное обеспечение** в LuCI"
+              echo "берут модули ядра из релиза \`${{ steps.tag.outputs.tag }}-packages\`"
+              echo "(появляется через 10–15 минут после этого релиза), остальное — из"
+              echo "официального OpenWrt $(sed -n 's/^PACKAGES_RELEASE=//p' configs/packages.env) (\`mipsel_24kc\`)."
+            else
+              echo "**Пакеты.** Программы ставятся из официального OpenWrt"
+              echo "$(sed -n 's/^PACKAGES_RELEASE=//p' configs/packages.env) (\`mipsel_24kc\`). Модулей ядра для этой"
+              echo "сборки нет: они собираются только по запросу (ручной запуск"
+              echo "сборки с отметкой **packages**)."
+            fi
+            echo "Подробнее — [docs/packages.md](https://github.com/$GITHUB_REPOSITORY/blob/main/docs/packages.md)."
+            echo
             echo '### SHA-256'
             echo
             echo '```'
@@ -210,7 +230,9 @@ jobs:
             echo '```'
           } > release-body.md
           ls -l out
-          ./scripts/make-feed.sh openwrt feed
+          if [ -n "$PACKAGE_FEED" ]; then
+            ./scripts/make-feed.sh openwrt feed
+          fi
 
       - name: Upload images
         uses: actions/upload-artifact@v4
@@ -218,8 +240,9 @@ jobs:
           name: openwrt-tenda-ac8-${{ github.run_number }}
           path: out/
 
-      # Published by packages.yml once this run succeeds.
+      # Published by the packages job below.
       - name: Upload package feed
+        if: env.PACKAGE_FEED == '1'
         uses: actions/upload-artifact@v4
         with:
           name: packages-${{ steps.tag.outputs.tag }}
@@ -246,3 +269,12 @@ jobs:
           prerelease: true
           body_path: release-body.md
           files: out/*.bin
+
+  # Only with the "packages" input (see PACKAGE_FEED), after the release
+  # of the images.
+  packages:
+    needs: build
+    if: inputs.packages && inputs.release
+    uses: ./.github/workflows/packages.yml
+    with:
+      run_id: ${{ github.run_id }}

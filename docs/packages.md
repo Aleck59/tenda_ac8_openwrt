@@ -1,11 +1,11 @@
 # Пакеты для Tenda AC8 v1
 
-Прошивка ставит пакеты из двух мест, оба уже прописаны в
+Прошивка ставит пакеты из мест, уже прописанных в
 `/etc/opkg/distfeeds.conf`:
 
 | Фид | Откуда | Что там |
 |---|---|---|
-| `tenda_ac8` | релиз `<версия прошивки>-packages` этого репозитория | модули ядра `kmod-*`, Wi-Fi-драйвер `rtl8192cd`, `base-files`, тема LuCI footstrap, `wifi-scripts` для `rtl8192cd` |
+| `tenda_ac8` (только у сборок с `packages`) | релиз `<версия прошивки>-packages` этого репозитория | модули ядра `kmod-*`, Wi-Fi-драйвер `rtl8192cd`, `base-files`, тема LuCI footstrap, `wifi-scripts` для `rtl8192cd` |
 | `openwrt_base`, `openwrt_packages`, `openwrt_luci`, `openwrt_routing`, `openwrt_telephony` | официальный OpenWrt 24.10.8, архитектура `mipsel_24kc` | всё остальное: программы, библиотеки, приложения LuCI |
 
 Ставить можно из LuCI (**Система → Программное обеспечение**) или из
@@ -15,6 +15,14 @@
 opkg update
 opkg install kmod-wireguard wireguard-tools luci-proto-wireguard
 ```
+
+Фид `tenda_ac8` собирается не каждый раз, а только по запросу: **Actions →
+Build OpenWrt (Tenda AC8 v1) → Run workflow** с отметкой `packages`.
+Сборки от push в `main` и ручные без отметки его не собирают (они на ~17
+минут быстрее), и в их `distfeeds.conf` его нет: программы из
+официального OpenWrt ставятся, а модулей ядра для такой прошивки нет.
+Если нужен модуль ядра, прошейте сборку с `packages` (или добавьте пакет в
+образ через `extra_packages`).
 
 ## Почему так
 
@@ -43,22 +51,29 @@ AC8 без Wi-Fi.
 
 ## Как устроена сборка
 
-1. [`build.yml`](../.github/workflows/build.yml) собирает прошивку с
-   `CONFIG_ALL_KMODS` (минус исключения) и записывает в образ
-   `distfeeds.conf` ([`scripts/distfeeds.sh`](../scripts/distfeeds.sh)).
+1. [`build.yml`](../.github/workflows/build.yml) с `packages` собирает
+   прошивку с `CONFIG_ALL_KMODS` (минус исключения,
+   `PACKAGE_FEED=1 scripts/configure.sh`) и записывает в образ
+   `distfeeds.conf` с фидом сборки
+   ([`scripts/distfeeds.sh`](../scripts/distfeeds.sh)).
    [`scripts/make-feed.sh`](../scripts/make-feed.sh) складывает пакеты
    фида в один каталог с индексом `Packages`, подписанным ключом этой
    сборки: этот ключ лежит в образе в `/etc/opkg/keys/`. Каталог
    сохраняется как артефакт `packages-<версия>`.
-2. [`packages.yml`](../.github/workflows/packages.yml) запускается после
-   успешной сборки и публикует этот артефакт релизом
-   `<версия>-packages`. Для уже собранной прошивки его можно запустить
-   вручную (**Actions → Publish packages → Run workflow**, номер прогона
-   сборки), пока артефакт не удалён (14 дней).
+2. [`packages.yml`](../.github/workflows/packages.yml) вызывается той же
+   сборкой после выкладки образов и публикует этот артефакт релизом
+   `<версия>-packages`. Файлы выкладываются по одному с паузой: GitHub
+   принимает около 80 файлов в минуту, поэтому на ~440 файлов уходит
+   10–15 минут. Если выкладка прервалась, её можно повторить вручную
+   (**Actions → Publish packages → Run workflow**, номер прогона сборки),
+   пока артефакт не удалён (14 дней): уже выложенные файлы пропускаются.
 
 Прошивки до `ac8-20260924-11` включительно собраны без фида: у них в
 `distfeeds.conf` адреса по умолчанию, и модули ядра для них не собраны.
 В фиде `ac8-20260924-12` не скачиваются шесть пакетов с `~` в версии
 (`base-files`, `fstools`, `fwtool`, `kmod-mtd-rw`, `kmod-nat46`, тема
 footstrap): GitHub заменил `~` в именах файлов на `.`. С
-`ac8-20260924-13` файлы называются так, как их публикует GitHub.
+`ac8-20260924-13` файлы называются так, как их публикует GitHub, но фид
+`ac8-20260924-13` выложен не полностью: GitHub оборвал выкладку по
+ограничению частоты запросов. Сборки после `ac8-20260924-13` собирают фид
+только с `packages`.

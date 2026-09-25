@@ -5,20 +5,24 @@ name: Publish packages (Tenda AC8 v1)
 # else installs from the official OpenWrt feeds (configs/packages.env).
 #
 # The packages themselves are compiled by build.yml together with the
-# images: OpenWrt's kernel version hash depends on the selected module
-# packages, so modules only install on the image built with them, and the
-# index is signed with the build key that image trusts.  This workflow
-# takes the feed of a successful build and publishes it as the release
-# <image tag>-packages, the URL the images carry in distfeeds.conf.
+# images, and only when a manual build run asks for them ("packages"):
+# OpenWrt's kernel version hash depends on the selected module packages,
+# so modules only install on the image built with them, and the index is
+# signed with the build key that image trusts.  build.yml then calls this
+# workflow, which publishes the feed as the release <image tag>-packages,
+# the URL those images carry in distfeeds.conf.  By hand it (re)publishes
+# the feed of a build run while its artifact exists (14 days).
 
 on:
-  workflow_run:
-    workflows: ["Build OpenWrt (Tenda AC8 v1)"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      run_id:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       run_id:
-        description: "ID of a successful build run (the number in its URL .../actions/runs/<id>)"
+        description: "ID of a build run with a package feed (the number in its URL .../actions/runs/<id>)"
         required: true
         type: string
 
@@ -26,17 +30,17 @@ permissions:
   contents: write
   actions: read
 
-concurrency:
-  group: packages-${{ inputs.run_id || github.event.workflow_run.id }}
-
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
+    # One feed at a time: the uploads share the rate limits of the token.
+    concurrency:
+      group: packages-publish
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
-      RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+      RUN_ID: ${{ inputs.run_id }}
     steps:
       - name: Find the feed of the build
         id: feed
@@ -44,7 +48,7 @@ jobs:
           name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
             --jq '.artifacts[] | select(.expired | not) | .name | select(startswith("packages-"))' | head -n1)
           if [ -z "$name" ]; then
-            echo "::error::build run $RUN_ID has no packages-* artifact (older than this workflow, or expired)"
+            echo "::error::build run $RUN_ID has no packages-* artifact (built without \"packages\", or expired)"
             exit 1
           fi
           tag=${name#packages-}
@@ -114,14 +118,83 @@ jobs:
           EOF
           cat body.md
 
+      # GitHub allows about 80 uploads a minute (secondary rate limit): all
+      # ~440 files at once got the run of build 13 refused.  One file at a
+      # time with a pause, waiting out a refusal, the index last so that it
+      # never names a missing file.  A re-run skips the files already there.
       - name: Publish
         if: steps.feed.outputs.publish == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.feed.outputs.tag }}-packages
-          target_commitish: ${{ steps.feed.outputs.sha }}
-          name: Пакеты для ${{ steps.feed.outputs.tag }}
-          prerelease: true
-          make_latest: false
-          body_path: body.md
-          files: feed/*
+        env:
+          TAG: ${{ steps.feed.outputs.tag }}
+          SHA: ${{ steps.feed.outputs.sha }}
+        run: |
+          repo=$GITHUB_REPOSITORY
+          rel=$TAG-packages
+          if ! gh release view "$rel" --repo "$repo" >/dev/null 2>&1; then
+            gh release create "$rel" --repo "$repo" --target "$SHA" \
+              --title "Пакеты для $TAG" --notes-file body.md --prerelease --latest=false
+          fi
+          id=$(gh api "repos/$repo/releases/tags/$rel" --jq .id)
+
+          assets() {
+            gh api --paginate "repos/$repo/releases/$id/assets?per_page=100" \
+              --jq '.[] | "\(.id) \(.state) \(.size) \(.name)"'
+          }
+          delete() { gh api -X DELETE "repos/$repo/releases/assets/$1" || true; }
+          # Unfinished uploads of an earlier attempt block their names.
+          assets | awk '$2 != "uploaded" { print $1 }' | while read -r a; do delete "$a"; done
+          assets > assets.txt
+
+          upload() {
+            local f=$1 n=${1##*/} delay=60 try code pause rem reset a
+            for try in 1 2 3 4 5 6 7 8 9 10; do
+              : > headers.txt; : > resp.json
+              code=$(curl -sS -o resp.json -D headers.txt -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@$f" \
+                "https://uploads.github.com/repos/$repo/releases/$id/assets?name=$n") || code=000
+              [ "$code" = 201 ] && return 0
+              if [ "$code" = 422 ]; then
+                # Left behind by a failed attempt: keep it if complete.
+                a=$(assets | awk -v n="$n" -v s="$(stat -c%s "$f")" \
+                  '$4 == n { print ($2 == "uploaded" && $3 == s) ? "ok" : $1 }')
+                [ "$a" = ok ] && return 0
+                [ -z "$a" ] || delete "$a"
+                continue
+              fi
+              tr -d '\r' < headers.txt > h.txt
+              pause=$(sed -n 's/^retry-after: *\([0-9]*\).*/\1/Ip' h.txt)
+              rem=$(sed -n 's/^x-ratelimit-remaining: *\([0-9]*\).*/\1/Ip' h.txt)
+              reset=$(sed -n 's/^x-ratelimit-reset: *\([0-9]*\).*/\1/Ip' h.txt)
+              if [ -z "$pause" ] && [ "$rem" = 0 ] && [ -n "$reset" ]; then
+                pause=$((reset - $(date +%s) + 5))
+              fi
+              [ -n "$pause" ] && [ "$pause" -gt 0 ] || pause=$delay
+              echo "::warning::$n: HTTP $code $(head -c 300 resp.json), retrying in $pause s"
+              sleep "$pause"
+              [ "$delay" -ge 600 ] || delay=$((delay * 2))
+            done
+            echo "::error::$n: not uploaded"
+            return 1
+          }
+
+          count=0
+          for f in feed/*.ipk feed/Packages.gz feed/Packages.sig feed/Packages; do
+            [ -f "$f" ] || continue
+            n=${f##*/}
+            old=$(awk -v n="$n" '$4 == n { print $1, $3 }' assets.txt)
+            if [ -n "$old" ]; then
+              case "$n" in
+                # The index of a re-run replaces the one there.
+                Packages*) ;;
+                *) [ "${old#* }" = "$(stat -c%s "$f")" ] && continue ;;
+              esac
+              delete "${old%% *}"
+            fi
+            upload "$f"
+            count=$((count + 1))
+            sleep 1
+          done
+          echo "uploaded $count files to $rel"
