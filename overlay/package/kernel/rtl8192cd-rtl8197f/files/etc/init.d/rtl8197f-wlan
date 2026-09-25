@@ -4,40 +4,77 @@
 # Load the experimental rtl8192cd Wi-Fi driver of the Tenda AC8 once the
 # rest of the system (and LAN) is up, then let netifd set up the radios.
 #
-# A load that never finishes (oops, hang, watchdog reset) leaves $GUARD
-# behind, and the following boots keep Wi-Fi off so the router stays
-# reachable over LAN.  Remove $GUARD to try again:
+# Modes, tried in this order: "dual" (the integrated 2.4 GHz radio and the
+# 5 GHz RTL8812F on PCIe), then "pcie" (5 GHz only).  A load, or a first
+# bring-up of the enabled radios, that never finishes (oops, hang, watchdog
+# reset) leaves $GUARD behind with its mode: the next boot adds that mode
+# to $FAILED and uses the next one.  With every mode failed Wi-Fi stays
+# off, so the router stays reachable over LAN.  To try again:
 #
-#	rm /etc/rtl8197f-wlan.loading; /etc/init.d/rtl8197f-wlan start
+#	rm /etc/rtl8197f-wlan.failed; /etc/init.d/rtl8197f-wlan start
 
 START=99
 
 GUARD=/etc/rtl8197f-wlan.loading
+FAILED=/etc/rtl8197f-wlan.failed
 LOG=/tmp/rtl8197f-wlan-load.log
+MODES="dual pcie"
 
 start() {
 	grep -q '^rtl8192cd ' /proc/modules && return 0
 
 	if [ -e "$GUARD" ]; then
-		logger -t rtl8197f-wlan "the last driver load did not finish, Wi-Fi stays off; remove $GUARD to retry"
+		# The builds up to ac8-20260925-15 left an empty guard.
+		last=$(cat "$GUARD" 2>/dev/null)
+		echo "${last:-dual}" >> "$FAILED"
+		rm -f "$GUARD"
+		logger -t rtl8197f-wlan "the driver load in mode ${last:-dual} did not finish, not trying that mode again"
+	fi
+
+	mode=
+	for m in $MODES; do
+		grep -qx "$m" "$FAILED" 2>/dev/null && continue
+		mode=$m
+		break
+	done
+	if [ -z "$mode" ]; then
+		logger -t rtl8197f-wlan "no driver load mode left, Wi-Fi stays off; remove $FAILED to retry"
 		return 1
 	fi
 
 	(
-		touch "$GUARD"
+		echo "$mode" > "$GUARD"
 		sync
-		/usr/sbin/rtl8197f-wlan-load --dual >"$LOG" 2>&1
+		/usr/sbin/rtl8197f-wlan-load --"$mode" >"$LOG" 2>&1
 		rc=$?
-		rm -f "$GUARD"
-		sync
-		logger -t rtl8197f-wlan "driver load finished with rc=$rc, log in $LOG"
-		[ "$rc" = 0 ] || exit 0
+		# Killed by an oops, or stuck in its init: not this mode again.
+		if [ "$rc" -ge 128 ] || grep -q '^rtl8192cd .* Loading ' /proc/modules; then
+			echo "$mode" >> "$FAILED"
+			rm -f "$GUARD"
+			sync
+			rc=1
+		fi
+		logger -t rtl8197f-wlan "driver load ($mode) finished with rc=$rc, log in $LOG"
+		if [ "$rc" != 0 ]; then
+			rm -f "$GUARD"
+			sync
+			exit 0
+		fi
 
 		# The phys appeared after netifd started: add them to
 		# /etc/config/wireless (new radios start disabled) and bring
-		# up the enabled ones.
+		# up the enabled ones.  The hardware of a radio is set up
+		# (firmware, calibration) when it goes up: keep $GUARD until
+		# that is over, so a crash there does not repeat every boot.
 		sleep 2
 		/sbin/wifi config
 		/sbin/wifi up
+		sleep 30
+		if dmesg | grep -qE 'Oops|Unable to handle kernel|BUG: '; then
+			echo "$mode" >> "$FAILED"
+			logger -t rtl8197f-wlan "kernel oops while the radios came up, mode $mode will not be used again"
+		fi
+		rm -f "$GUARD"
+		sync
 	) </dev/null >/dev/null 2>&1 &
 }

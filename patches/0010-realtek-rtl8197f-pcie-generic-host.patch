@@ -1,0 +1,195 @@
+Subject: [PATCH] realtek: rtl8197f: working PCIe host and WLAN interrupts
+
+- CONFIG_PCI never took effect (see kernel patch 333): select the generic
+  MIPS PCI code in the target config.
+- The memory window: bus addresses equal CPU addresses on this root
+  complex (the BSP and the stock firmware of the Tenda AC8 write
+  0x19000000 into BAR2), so the window maps 0x19000000 to itself.  The
+  2 MiB I/O aperture does not fit the 64 KiB MIPS port space and the
+  Realtek radios only use their memory BAR: leave it out.
+- The host driver added the windows by hand after
+  devm_pci_alloc_host_bridge() had already parsed and requested the ones
+  in "ranges", so requesting them again failed with -EBUSY.  Use the
+  windows from the DT only.
+- The WLAN MAC and the PCIe root complex sat directly on CPU IRQ 6 and 5,
+  which the ICTL driver takes as cascade inputs: request_irq() on them
+  fails.  They are ICTL bits 29 and 21 (BSP_WLAN_MAC_IRQ, BSP_PCIE_IRQ;
+  the wlan_device[] table of the Tenda AC8 stock firmware lists them),
+  routed to CPU IRQ 6 and 5 as on the vendor kernels.
+---
+--- a/target/linux/realtek/dts/rtl8197f.dtsi
++++ b/target/linux/realtek/dts/rtl8197f.dtsi
+@@ -263,11 +263,19 @@
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * The integrated WLAN MAC and the PCIe root complex interrupt
++		 * through the ICTL like every other block (BSP_WLAN_MAC_IRQ and
++		 * BSP_PCIE_IRQ, ICTL bits 29 and 21: the wlan_device[] table of
++		 * the Tenda AC8 stock firmware).  The ICTL cascades all of CPU
++		 * IRQ 2..6, so those cannot be requested directly; route the two
++		 * to CPU IRQ 6 and 5 as the vendor kernels do.
++		 */
+ 		wlan: wifi@640000 {
+ 			compatible = "realtek,rtl8197f-wmac";
+ 			reg = <0x00640000 0x40000>;
+-			interrupt-parent = <&cpuintc>;
+-			interrupts = <6>;
++			interrupt-parent = <&intc>;
++			interrupts = <29 5>;
+ 			status = "disabled";
+ 		};
+ 
+@@ -277,16 +285,21 @@
+ 			reg = <0x00b00000 0x10000>, <0x00b10000 0x10000>;
+ 			reg-names = "rc", "ep";
+ 			realtek,syscon = <&syscon>;
+-			interrupt-parent = <&cpuintc>;
+-			interrupts = <5>;
++			interrupt-parent = <&intc>;
++			interrupts = <21 4>;
+ 			#address-cells = <3>;
+ 			#size-cells = <2>;
+ 			#interrupt-cells = <1>;
+ 			bus-range = <0 0>;
+ 			linux,pci-domain = <0>;
+-			/* Child PCI address, parent SoC offset, aperture size. */
+-			ranges = <0x01000000 0 0x00000000 0x00c00000 0 0x00200000>,
+-				 <0x02000000 0 0x00000000 0x01000000 0 0x01000000>;
++			/*
++			 * Child PCI address, parent SoC offset, aperture size.
++			 * The root complex does not translate: BARs hold CPU
++			 * addresses (0x19000000), as in the vendor BSP.  The I/O
++			 * aperture at 0x18c00000 does not fit the MIPS port
++			 * space and is not used by the Realtek radios.
++			 */
++			ranges = <0x02000000 0 0x19000000 0x01000000 0 0x01000000>;
+ 			status = "disabled";
+ 		};
+ 	};
+--- a/target/linux/realtek/files-6.6/drivers/pci/controller/pcie-rtl8197f.c
++++ b/target/linux/realtek/files-6.6/drivers/pci/controller/pcie-rtl8197f.c
+@@ -6,6 +6,14 @@
+  * GPL-released RTL8197F board support package.  The old BSP registered an
+  * arch-specific pci_controller; this driver exposes the same single-device
+  * root complex through the generic Linux PCI host-bridge API.
++ *
++ * The memory window comes from the "ranges" of the DT node, which
++ * devm_pci_alloc_host_bridge() parses and requests.  The root complex does
++ * not translate addresses: the BSP (and the Tenda AC8 stock firmware) put
++ * CPU physical addresses into the BARs, so the PCI bus address of the window
++ * equals its CPU address.  The 2 MiB I/O aperture at 0x18c00000 does not fit
++ * the 64 KiB MIPS port space and is left out; the Realtek radios only use
++ * their memory BAR.
+  */
+ 
+ #include <linux/bitfield.h>
+@@ -45,20 +53,12 @@
+ #define RTL8197F_PCIE_LINK_UP		0x11
+ #define RTL8197F_PCIE_COMMAND_ENABLE	0x00100007
+ 
+-#define RTL8197F_PCIE_IO_BASE		0x18c00000
+-#define RTL8197F_PCIE_IO_SIZE		SZ_2M
+-#define RTL8197F_PCIE_MEM_BASE		0x19000000
+-#define RTL8197F_PCIE_MEM_SIZE		SZ_16M
+-
+ struct rtl8197f_pcie {
+ 	struct device *dev;
+ 	struct regmap *syscon;
+ 	void __iomem *rc;
+ 	void __iomem *ep;
+ 	struct pci_host_bridge *bridge;
+-	struct resource io_res;
+-	struct resource mem_res;
+-	struct resource busn_res;
+ 	spinlock_t cfg_lock;
+ 	int irq;
+ 	bool refclk_40mhz;
+@@ -259,34 +259,6 @@
+ 	return pcie->irq;
+ }
+ 
+-static void rtl8197f_pcie_init_resources(struct rtl8197f_pcie *pcie)
+-{
+-	struct pci_host_bridge *bridge = pcie->bridge;
+-
+-	pcie->io_res = (struct resource) {
+-		.name = "RTL8197F PCIe IO",
+-		.start = RTL8197F_PCIE_IO_BASE,
+-		.end = RTL8197F_PCIE_IO_BASE + RTL8197F_PCIE_IO_SIZE - 1,
+-		.flags = IORESOURCE_IO,
+-	};
+-	pcie->mem_res = (struct resource) {
+-		.name = "RTL8197F PCIe MEM",
+-		.start = RTL8197F_PCIE_MEM_BASE,
+-		.end = RTL8197F_PCIE_MEM_BASE + RTL8197F_PCIE_MEM_SIZE - 1,
+-		.flags = IORESOURCE_MEM,
+-	};
+-	pcie->busn_res = (struct resource) {
+-		.name = "RTL8197F PCIe bus",
+-		.start = 0,
+-		.end = 0,
+-		.flags = IORESOURCE_BUS,
+-	};
+-
+-	pci_add_resource(&bridge->windows, &pcie->io_res);
+-	pci_add_resource(&bridge->windows, &pcie->mem_res);
+-	pci_add_resource(&bridge->windows, &pcie->busn_res);
+-}
+-
+ static int rtl8197f_pcie_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -295,9 +267,12 @@
+ 	u32 value;
+ 	int ret;
+ 
++	/* Also parses and requests the windows in the "ranges" of the node. */
+ 	bridge = devm_pci_alloc_host_bridge(dev, sizeof(*pcie));
+ 	if (!bridge)
+ 		return -ENOMEM;
++	if (!resource_list_first_type(&bridge->windows, IORESOURCE_MEM))
++		return dev_err_probe(dev, -EINVAL, "no memory window in \"ranges\"\n");
+ 
+ 	pcie = pci_host_bridge_priv(bridge);
+ 	pcie->dev = dev;
+@@ -342,11 +317,6 @@
+ 	bridge->map_irq = rtl8197f_pcie_map_irq;
+ 	bridge->size_windows = 1;
+ 
+-	rtl8197f_pcie_init_resources(pcie);
+-	ret = devm_request_pci_bus_resources(dev, &bridge->windows);
+-	if (ret)
+-		return dev_err_probe(dev, ret, "cannot reserve PCIe windows\n");
+-
+ 	ret = pci_host_probe(bridge);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "PCI host probe failed\n");
+--- a/target/linux/realtek/rtl8197f/config-6.6
++++ b/target/linux/realtek/rtl8197f/config-6.6
+@@ -14,6 +14,7 @@
+ CONFIG_CONSOLE_LOGLEVEL_DEFAULT=15
+ CONFIG_CPUFREQ_DT=y
+ CONFIG_CPUFREQ_DT_PLATDEV=y
++CONFIG_HAVE_PCI=y
+ CONFIG_PCI=y
+ CONFIG_USB_SUPPORT=y
+ CONFIG_USB=y
+@@ -154,13 +155,14 @@
+ CONFIG_NET_DEVLINK=y
+ CONFIG_NET_SELFTESTS=y
+ CONFIG_NO_EXCEPT_FILL=y
+-CONFIG_NO_GENERIC_PCI_IOPORT_MAP=y
+ CONFIG_NVMEM=y
+ CONFIG_NVMEM_U_BOOT_ENV=y
+ CONFIG_NVMEM_LAYOUT_U_BOOT_ENV=y
+ CONFIG_OF_KOBJ=y
+ CONFIG_OF_MDIO=y
+-CONFIG_PCI_DRIVERS_LEGACY=y
++CONFIG_PCI_DOMAINS=y
++CONFIG_PCI_DOMAINS_GENERIC=y
++CONFIG_PCI_DRIVERS_GENERIC=y
+ CONFIG_PERF_USE_VMALLOC=y
+ CONFIG_PGTABLE_LEVELS=2
+ CONFIG_PHYLIB=y

@@ -1,0 +1,448 @@
+Subject: [PATCH] rtl8192cd-rtl8197f: bring up both radios of the NET_PCI build
+
+The AC8 variant is built with CONFIG_NET_PCI (PCI driver model), where
+the vendor code never initialises the integrated RTL8197F radio (the
+TYPE_EMBEDDED slot only registers the PCI driver), and its non-NET_PCI
+path relies on the DMA API of old kernels: pdev == NULL,
+dma_alloc_coherent(NULL, ...), pci_enable_device(NULL) and a cache sync
+helper that skipped radios without a pdev.  With
+CONFIG_RTL8197F_WMAC_PLATFORM (config_8192cd_ac8.h):
+
+- a platform driver for the "realtek,rtl8197f-wmac" DT node initialises
+  the integrated radio in its wlan_device[] slot (0: wlan0, 2.4 GHz with
+  CONFIG_BAND_2G_ON_WLAN0), before the PCI radios.  It gets a pci_dev
+  that is never registered with the PCI core and only carries a struct
+  device (child of the platform device) for the DMA API, which the rest
+  of the driver reaches through &priv->pshare->pdev->dev;
+- get_physical_addr() maps through the DMA API for every radio with a
+  device, which does the cache maintenance of non-coherent MIPS;
+- rtl_cache_sync_wback(PCI_DMA_FROMDEVICE) invalidates, like the
+  dma_cache_inv() of the vendor code: dma_sync_single_for_cpu() does
+  nothing on the 24Kc;
+- the PCI driver probes into the slots after the integrated radio, so
+  the RTL8812F gets the 5 GHz index (wlandev_idx 1);
+- no pci_enable_device()/pci_disable_device() for the integrated radio;
+- the cfg80211 layer registers the RTL8812F (and RTL8822C) as a 5 GHz
+  802.11ac radio: rtk_get_band_capa() and is_support_ac() only knew the
+  older 5 GHz chips, so the wiphy had the 2.4 GHz band only;
+- module parameter integrated_radio (default on) next to external_radio,
+  and rtl8197f-wlan-load --pcie loads the PCIe radio alone.
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/Makefile
++++ b/package/kernel/rtl8192cd-rtl8197f/Makefile
+@@ -2,7 +2,7 @@
+ include $(INCLUDE_DIR)/kernel.mk
+ 
+ PKG_NAME:=rtl8192cd-rtl8197f
+-PKG_RELEASE:=6
++PKG_RELEASE:=7
+ PKG_LICENSE:=GPL-2.0-only
+ PKG_MAINTAINER:=RTL8197F RD05/MW5/AC23 experimental port
+ PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/$(PKG_NAME)-$(BUILD_VARIANT)
+--- a/package/kernel/rtl8192cd-rtl8197f/files/usr/sbin/rtl8197f-wlan-load
++++ b/package/kernel/rtl8192cd-rtl8197f/files/usr/sbin/rtl8197f-wlan-load
+@@ -4,6 +4,7 @@
+ set -u
+ mode=integrated
+ [ "${1:-}" = "--dual" ] && mode=dual
++[ "${1:-}" = "--pcie" ] && mode=pcie
+ [ "${1:-}" = "--probe" ] && mode=probe
+ board="$(cat /tmp/sysinfo/board_name 2>/dev/null || true)"
+ case "$board" in
+@@ -24,14 +25,20 @@
+ 	echo 'rtl8192cd already loaded'
+ 	exit 0
+ fi
++# integrated: the SoC radio only; pcie: the PCIe radio only; dual: both
+ external=0
+-[ "$mode" = dual ] && external=1
++integrated=1
++case "$mode" in
++	dual) external=1 ;;
++	pcie) external=1; integrated=0 ;;
++esac
+ 
+ echo 'Loading experimental rtl8192cd; serial recovery is required.'
+ # ubox modprobe ignores module parameters: load the dependencies with it
+ # (compat and cfg80211 for the nl80211 build), the driver with insmod.
+ modprobe cfg80211 2>/dev/null
+-insmod rtl8192cd board_profile="$profile" bond_option="$bond" external_radio="$external"
++insmod rtl8192cd board_profile="$profile" bond_option="$bond" \
++	external_radio="$external" integrated_radio="$integrated"
+ rc=$?
+ sleep 3
+ for p in /sys/module/rtl8192cd/parameters/init_phase \
+@@ -39,6 +46,6 @@
+ 	/sys/module/rtl8192cd/parameters/init_rc; do
+ 	[ -e "$p" ] && echo "$(basename "$p")=$(cat "$p")"
+ done
+-dmesg | grep -Ei 'rtl8197f-wlan|rtl8192cd|8197f|8822|8812f|8814b|phydm|halmac|firmware|efuse|iqk|lck|irq|dma' | tail -n 220 || true
++dmesg | grep -Ei 'rtl8197f-wlan|rtl8197f-wmac|rtl8197f-pcie|pci |rtl8192cd|8197f|8822|8812f|8814b|phydm|halmac|firmware|efuse|iqk|lck|irq|dma' | tail -n 260 || true
+ ip -brief link show 2>/dev/null || ip link show
+ exit "$rc"
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_cfg80211.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_cfg80211.c
+@@ -933,7 +933,8 @@
+ 	*band_2gig = true;
+ 	*band_5gig = false;
+ 
+-	if ((GET_CHIP_VER(priv) == VERSION_8812E) || (GET_CHIP_VER(priv) == VERSION_8814A) || (GET_CHIP_VER(priv) == VERSION_8822B))
++	if ((GET_CHIP_VER(priv) == VERSION_8812E) || (GET_CHIP_VER(priv) == VERSION_8814A) || (GET_CHIP_VER(priv) == VERSION_8822B)
++	    || (GET_CHIP_VER(priv) == VERSION_8822C) || (GET_CHIP_VER(priv) == VERSION_8812F))
+ 	{
+ #if defined(CONFIG_WLAN_HAL_8814AE)
+ 		if(priv->pshare->is5g)
+@@ -1116,6 +1117,8 @@
+ 		case VERSION_8812E:
+ 		case VERSION_8881A:
+ 		case VERSION_8822B:
++		case VERSION_8822C:
++		case VERSION_8812F:
+ 			ret=1;
+ 			break;
+ #if defined(CONFIG_WLAN_HAL_8814AE)
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_osdep.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_osdep.c
+@@ -14432,7 +14432,12 @@
+ 	
+ 	return SUCCESS;
+ #else	
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++	/* Linux 5+ needs a device for DMA memory. */
++	rx_dma_ptr = dma_alloc_coherent(&priv->pshare->pdev->dev, rx_dma_size,&(_GET_HAL_DATA(priv)->alloc_desc_rxdma_dmahandle), GFP_ATOMIC);
++#else
+ 	rx_dma_ptr = dma_alloc_coherent(NULL, rx_dma_size,&(_GET_HAL_DATA(priv)->alloc_desc_rxdma_dmahandle), GFP_ATOMIC);
++#endif
+     if (rx_dma_ptr == NULL) {
+         panic_printk(KERN_ERR "can't allocate rx descriptior page, abort!\n");
+         _GET_HAL_DATA(priv)->desc_dma_rxbuf_len   = 0;
+@@ -17115,7 +17120,12 @@
+ 		dev->irq = wdev->irq;
+ 		modlog("pci_enable_device");
+ #ifndef CONFIG_WLAN_HAL_8197G
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++		/* the integrated radio: pdev only carries its DMA device */
++		rc = 0;
++#else
+ 		rc = pci_enable_device(pdev);
++#endif
+ 		if (rc){
+ 			modlog("pci_enable_device fail	\n");
+ 			goto err_out_free2;
+@@ -18512,7 +18522,11 @@
+ 
+ err_out_disable:
+ 
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++	if ((((wdev->type >> TYPE_SHIFT) & TYPE_MASK) == TYPE_PCI_BIOS)||(((wdev->type >> TYPE_SHIFT) & TYPE_MASK) == TYPE_PCI_BIOS_DT))
++#else
+ 	//if ((((wdev->type >> TYPE_SHIFT) & TYPE_MASK) == TYPE_PCI_BIOS)||(((wdev->type >> TYPE_SHIFT) & TYPE_MASK) == TYPE_PCI_BIOS_DT))
++#endif
+ 		modlog("pci_disable_device pdev[%p]",pdev);
+ 	    pci_disable_device(pdev);
+ #endif // CONFIG_NET_PCI
+@@ -18963,6 +18977,9 @@
+ 	}
+ #endif
+ 	modlog("pci_disable_device pdev[%p]",priv->pshare->pdev);
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++	if (IS_PCIBIOS_TYPE)
++#endif
+ 	pci_disable_device(priv->pshare->pdev);
+ #endif // CONFIG_NET_PCI
+ 
+@@ -18998,7 +19015,11 @@
+             if (_GET_HAL_DATA(priv)->desc_rxdma_buf) {
+ #if 1//def CONFIG_RXBD_UNCACHE_COHERENT
+ 				if (_GET_HAL_DATA(priv)->alloc_desc_rxdma_addr) {
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++					dma_free_coherent(&priv->pshare->pdev->dev, _GET_HAL_DATA(priv)->alloc_desc_rxdma_buf_size, _GET_HAL_DATA(priv)->alloc_desc_rxdma_addr, _GET_HAL_DATA(priv)->alloc_desc_rxdma_dmahandle);
++#else
+ 					dma_free_coherent(NULL, _GET_HAL_DATA(priv)->alloc_desc_rxdma_buf_size, _GET_HAL_DATA(priv)->alloc_desc_rxdma_addr, _GET_HAL_DATA(priv)->alloc_desc_rxdma_dmahandle);
++#endif
+ 					_GET_HAL_DATA(priv)->alloc_desc_rxdma_addr = NULL;
+ 				} else
+ #endif
+@@ -19779,6 +19800,153 @@
+ }
+ #endif
+ 
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++/*
++ * The integrated RTL8197F radio (the TYPE_EMBEDDED slot of wlan_device[])
++ * in the NET_PCI build.
++ *
++ * The vendor code initialises it only without NET_PCI, with pdev == NULL
++ * and the DMA API of old kernels (dma_alloc_coherent(NULL, ...)), and in
++ * the NET_PCI build only registers the PCI driver for it.  The rest of the
++ * driver allocates, maps and syncs DMA memory through
++ * &priv->pshare->pdev->dev for either kind of radio, so the integrated
++ * radio gets a pci_dev that is never registered with the PCI core: only
++ * its struct device, a child of the platform device of the
++ * "realtek,rtl8197f-wmac" node, is used, for the DMA API.
++ */
++#include <linux/platform_device.h>
++
++static bool rtl8197f_wmac_registered;
++
++static void rtl8197f_wmac_dma_release(struct device *dev)
++{
++	kfree(container_of(dev, struct pci_dev, dev));
++}
++
++static int rtl8197f_wmac_slot(void)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(wlan_device); i++)
++		if (((wlan_device[i].type >> TYPE_SHIFT) & TYPE_MASK) == TYPE_EMBEDDED)
++			return i;
++	return -1;
++}
++
++/* PCI radios take the wlan_device[] slots after the integrated one. */
++static void rtl8197f_wlan_first_pci_slot(void)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(wlan_device); i++)
++		if (((wlan_device[i].type >> TYPE_SHIFT) & TYPE_MASK) == TYPE_PCI_BIOS) {
++			wlan_index = i;
++			return;
++		}
++}
++
++static void rtl8197f_wmac_deinit(int idx)
++{
++	struct rtl8192cd_priv *priv = wlan_device[idx].priv;
++
++	if (!priv)
++		return;
++	rtl8192cd_deinit_one(priv);
++#ifdef RTK_NL80211
++	rtk_remove_dev(priv->rtk, idx);
++#endif
++	wlan_device[idx].priv = NULL;
++}
++
++static int rtl8197f_wmac_init(struct pci_dev *dma_pdev, int idx)
++{
++	int saved = wlan_index, rc;
++#ifdef MBSSID
++	int i;
++#endif
++
++	/* rtl8192cd_init_one() takes the radio index (wlandev_idx) from here */
++	wlan_index = idx;
++	rc = rtl8192cd_init_one(dma_pdev, NULL, &wlan_device[idx], -1);
++#ifdef MBSSID
++	for (i = 0; !rc && i < RTL8192CD_NUM_VWLAN; i++)
++		rc = rtl8192cd_init_one(dma_pdev, NULL, &wlan_device[idx], i);
++#endif
++#ifdef UNIVERSAL_REPEATER
++	if (!rc)
++		rc = rtl8192cd_init_one(dma_pdev, NULL, &wlan_device[idx], -1);
++#endif
++	wlan_index = saved;
++	return rc;
++}
++
++static int rtl8197f_wmac_probe(struct platform_device *pdev)
++{
++	struct pci_dev *dma_pdev;
++	int idx, irq, rc;
++
++	idx = rtl8197f_wmac_slot();
++	if (idx < 0 || wlan_device[idx].priv)
++		return -EBUSY;
++
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0)
++		return irq;
++
++	dma_pdev = kzalloc(sizeof(*dma_pdev), GFP_KERNEL);
++	if (!dma_pdev)
++		return -ENOMEM;
++	device_initialize(&dma_pdev->dev);
++	dma_pdev->dev.parent = &pdev->dev;
++	dma_pdev->dev.release = rtl8197f_wmac_dma_release;
++	dma_pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
++	dma_pdev->dev.dma_mask = &dma_pdev->dev.coherent_dma_mask;
++	dev_set_name(&dma_pdev->dev, "%s-dma", dev_name(&pdev->dev));
++	dma_pdev->vendor = PCI_VENDOR_ID_REALTEK;
++	dma_pdev->irq = irq;
++	wlan_device[idx].irq = irq;
++
++	dev_info(&pdev->dev, "integrated radio, slot %d, irq %d\n", idx, irq);
++	rtl8197f_wlan_phase_set(60, "integrated-radio-init-one", 0);
++	rc = rtl8197f_wmac_init(dma_pdev, idx);
++	rtl8197f_wlan_phase_set(61, "integrated-radio-init-one-done", rc);
++	if (rc) {
++		dev_err(&pdev->dev, "integrated radio init failed: %d\n", rc);
++		rtl8197f_wmac_deinit(idx);
++		put_device(&dma_pdev->dev);
++		return rc;
++	}
++
++	platform_set_drvdata(pdev, dma_pdev);
++	return 0;
++}
++
++static void rtl8197f_wmac_remove(struct platform_device *pdev)
++{
++	struct pci_dev *dma_pdev = platform_get_drvdata(pdev);
++	int idx = rtl8197f_wmac_slot();
++
++	if (idx >= 0)
++		rtl8197f_wmac_deinit(idx);
++	if (dma_pdev)
++		put_device(&dma_pdev->dev);
++}
++
++static const struct of_device_id rtl8197f_wmac_of_match[] = {
++	{ .compatible = "realtek,rtl8197f-wmac" },
++	{ }
++};
++
++static struct platform_driver rtl8197f_wmac_driver = {
++	.probe = rtl8197f_wmac_probe,
++	.remove_new = rtl8197f_wmac_remove,
++	.driver = {
++		.name = "rtl8197f-wmac",
++		.of_match_table = rtl8197f_wmac_of_match,
++	},
++};
++#endif /* CONFIG_RTL8197F_WMAC_PLATFORM */
++
+ #ifndef __ECOS
+ int MDL_INIT __rtl8192cd_init(unsigned long base_addr)
+ {
+@@ -19875,6 +20043,9 @@
+ #ifdef LINUX_2_6_20_
+ #ifdef CONFIG_OPENWRT_SDK
+ 				modlog("rtl8197f: pci_register_driver");
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++				rtl8197f_wlan_first_pci_slot();
++#endif
+ 				rtl8197f_wlan_phase_set(50, "pcie-driver-register", 0);
+ 				rc = pci_register_driver(&rtl8192cd_driver.rtk_pci_drv);
+ 				rtl8197f_wlan_phase_set(51, "pcie-driver-registered", rc);
+@@ -19931,6 +20102,16 @@
+ 	printk("%s %d wlan_index =%x ret = %x !!!!! \n",__func__,__LINE__,wlan_index,ret);
+ 	//return ret;
+ 
++#elif defined(CONFIG_RTL8197F_WMAC_PLATFORM)
++		/* The integrated radio (slot 0, wlan0, 2.4 GHz with
++		 * CONFIG_BAND_2G_ON_WLAN0) comes up before the PCI ones. */
++		if (!rtl8197f_wmac_registered && rtl8197f_wlan_integrated_enabled()) {
++			rc = platform_driver_register(&rtl8197f_wmac_driver);
++			if (rc)
++				panic_printk("rtl8197f-wmac: platform_driver_register() fail!(%d)\n", rc);
++			else
++				rtl8197f_wmac_registered = true;
++		}
+ #else 
+ #if defined(CONFIG_NET_PCI) && defined(CONFIG_PCI_HCI)   /*for support rmmod module(8192FE)*/
+ 		if (FALSE == rtl8192cd_driver.drv_registered) {
+@@ -20243,6 +20424,13 @@
+ 	modlog("[module exit]pci_unregister_driver");
+ 	chk_insmod_rmmod();
+ 	pci_unregister_driver(&rtl8192cd_driver.rtk_pci_drv);
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++	/* after the PCI radios: the wiphys are released in reverse order */
++	if (rtl8197f_wmac_registered) {
++		platform_driver_unregister(&rtl8197f_wmac_driver);
++		rtl8197f_wmac_registered = false;
++	}
++#endif
+ #endif
+ #endif // CONFIG_PCI_HCI
+ 
+--- a/package/kernel/rtl8192cd-rtl8197f/src/core/8192cd_core_util.h
++++ b/package/kernel/rtl8192cd-rtl8197f/src/core/8192cd_core_util.h
+@@ -1220,7 +1220,13 @@
+ #endif
+ 
+ #if defined(CONFIG_NET_PCI) && !defined(USE_RTL8186_SDK)
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++	/* The integrated radio has a DMA device too: the mapping does the
++	 * cache maintenance its buffers need (Linux DMA API, non-coherent). */
++	if (priv->pshare->pdev && (0 != size))
++#else
+ 	if ((IS_PCIBIOS_TYPE) && (0 != size))
++#endif
+ 		return pci_map_single(priv->pshare->pdev, ptr, size, direction);
+ 	else
+ #endif
+@@ -1442,6 +1448,18 @@
+ 
+ 	/* Linux DMA mappings own cache maintenance.  The legacy driver passes a
+ 	 * CPU virtual address here on the integrated RTL8197F path. */
++#ifdef CONFIG_RTL8197F_WMAC_PLATFORM
++	if (!virt_addr_valid((void *)start))
++		return;
++	/* The vendor code (dma_cache_inv/_wback_inv) calls this with
++	 * PCI_DMA_FROMDEVICE before the device writes a buffer and before the
++	 * CPU reads it: invalidate.  dma_sync_single_for_cpu() does nothing on
++	 * CPUs without speculative prefetch such as the 24Kc. */
++	dma_addr = (dma_addr_t)virt_to_phys((void *)start);
++	dma_sync_single_for_device(&priv->pshare->pdev->dev, dma_addr, size,
++				   direction == PCI_DMA_FROMDEVICE ?
++				   DMA_FROM_DEVICE : DMA_TO_DEVICE);
++#else
+ 	dma_addr = (dma_addr_t)virt_to_phys((void *)start);
+ 	if (direction == PCI_DMA_FROMDEVICE)
+ 		dma_sync_single_for_cpu(&priv->pshare->pdev->dev, dma_addr, size,
+@@ -1449,6 +1467,7 @@
+ 	else
+ 		dma_sync_single_for_device(&priv->pshare->pdev->dev, dma_addr, size,
+ 					   DMA_TO_DEVICE);
++#endif
+ }
+ 
+ #elif defined(CONFIG_RTL_8198F)
+--- a/package/kernel/rtl8192cd-rtl8197f/src/rtl8197f_linux_compat.h
++++ b/package/kernel/rtl8192cd-rtl8197f/src/rtl8197f_linux_compat.h
+@@ -182,6 +182,7 @@
+ /* v42 board glue and phase telemetry, linked into the same rtl8192cd module. */
+ unsigned int rtl819x_bond_option(void);
+ bool rtl8197f_wlan_external_enabled(void);
++bool rtl8197f_wlan_integrated_enabled(void);
+ void rtl8197f_wlan_phase_set(int phase, const char *name, int rc);
+ 
+ #endif /* __MW5_LINUX_COMPAT_H__ */
+--- a/package/kernel/rtl8192cd-rtl8197f/src/rtl8197f_platform_glue.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/rtl8197f_platform_glue.c
+@@ -17,6 +17,10 @@
+ module_param(external_radio, bool, 0644);
+ MODULE_PARM_DESC(external_radio, "Allow PCIe external-radio registration");
+ 
++static bool integrated_radio = true;
++module_param(integrated_radio, bool, 0444);
++MODULE_PARM_DESC(integrated_radio, "Bring up the integrated RTL8197F radio (boards with its DT node enabled)");
++
+ static int init_phase;
+ module_param(init_phase, int, 0444);
+ MODULE_PARM_DESC(init_phase, "Last completed RTL8197F WLAN initialization phase");
+@@ -72,14 +76,19 @@
+ 	return external_radio;
+ }
+ 
++bool rtl8197f_wlan_integrated_enabled(void)
++{
++	return integrated_radio;
++}
++
+ void rtl8197f_wlan_phase_set(int phase, const char *name, int rc)
+ {
+ 	init_phase = phase;
+ 	init_rc = rc;
+ 	strscpy(last_phase, name ? name : "unnamed", sizeof(last_phase));
+-	pr_info("rtl8197f-wlan: phase=%d name=%s rc=%d profile=%s bond=%u external=%u\n",
++	pr_info("rtl8197f-wlan: phase=%d name=%s rc=%d profile=%s bond=%u external=%u integrated=%u\n",
+ 		phase, last_phase, rc, rtl8197f_detect_profile(),
+-		rtl819x_bond_option(), external_radio);
++		rtl819x_bond_option(), external_radio, integrated_radio);
+ }
+ 
+ MODULE_DESCRIPTION("RTL8197F RD05/MW5/AC23 rtl8192cd platform glue");

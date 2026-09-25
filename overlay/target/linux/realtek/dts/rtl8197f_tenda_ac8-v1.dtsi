@@ -260,10 +260,14 @@
 
 &pcie0 {
 	/*
-	 * RTL8812FR (10ec:f812 expected).  RTL8197FH/VG boards use the 40 MHz
-	 * reference clock tuning of the vendor BSP.
+	 * RTL8812F (10ec:f812), the 5 GHz radio.  Like the stock firmware,
+	 * the driver takes the reference clock from the strap (CLK_DETECT
+	 * bit 24) and does not apply the RTL8197F-VG PHY tuning.
 	 */
-	realtek,refclk-40mhz;
-	realtek,rtl8197f-vg;
+	status = "okay";
+};
+
+/* The integrated 2.4 GHz radio of the RTL8197FH. */
+&wlan {
 	status = "okay";
 };
