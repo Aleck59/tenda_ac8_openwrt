@@ -1,4 +1,4 @@
-Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network, LEDs and sysupgrade
+Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network, Wi-Fi defaults, LEDs and sysupgrade
 
 ---
 --- a/target/linux/realtek/base-files/etc/board.d/01_leds
@@ -66,6 +66,25 @@ Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network, LEDs and sysupgr
  hpe,1920-8g|\
  hpe,1920-8g-poe-65w|\
  hpe,1920-8g-poe-180w|\
+@@ -219,6 +243,18 @@
+ 	;;
+ esac
+ 
++case $board in
++tenda,ac8-v1|\
++tenda,ac8-v1-8m|\
++tenda,ac8-v1-16m)
++	# Wi-Fi on from the first boot: "wifi config" (mac80211.uc) gives these
++	# to the radios it adds to /etc/config/wireless.  Without a country it
++	# would leave the 5 GHz radio disabled.
++	ucidef_set_country "RU"
++	ucidef_set_wireless all "Openwrt" "psk2" "12345678"
++	;;
++esac
++
+ board_config_flush
+ 
+ exit 0
 --- a/target/linux/realtek/base-files/lib/upgrade/platform.sh
 +++ b/target/linux/realtek/base-files/lib/upgrade/platform.sh
 @@ -20,6 +20,16 @@

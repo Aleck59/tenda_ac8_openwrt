@@ -26,8 +26,8 @@
  *     rtl8_4t tag chosen by ac8-ethtest);
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
- *   - SYS/WPS LEDs and the button (GPIOs from the stock AC8 v1 eCos
- *     defaults, see the leds node);
+ *   - the SYS LED and the button (GPIOs from the code of the stock AC8 v1
+ *     eCos firmware, see the leds node);
  *   - the location of the Tenda config block at the end of the flash.
  *
  * The stock 4 MiB profile exports the flash read-only.  The 8/16 MiB
@@ -62,12 +62,15 @@
 	};
 
 	/*
-	 * GPIOs from the defaults of the stock eCos firmware of the AC8 v1
-	 * (sys_led=gpio6, wps_led=gpio7, wps_button=gpio20, reset_gpio=20;
-	 * Realtek numbering A0 = 0): SYS on A6, WPS on A7, the WPS/RST button on
-	 * C4.  WLAN on E1 (its wireless driver drives it on the stock firmware)
-	 * is verified on the AC8.  The polarity of A6/A7 is not verified.  The
-	 * port LEDs belong to the RTL8367RB (realtek,rtl8197f-ac8-oem-init).
+	 * GPIOs from the code of the stock eCos firmware of the AC8 v1 (Realtek
+	 * numbering A0 = 0).  Its GPIO init sets up only E3 (output, high) and
+	 * E4 (input).  E3 is the system LED: the "single_led" thread blinks it
+	 * and wps_led_on/off drive it too, low = on.  E4 is the WPS/RST button:
+	 * the "reset" (held) and "wps" (short press) entries of its button table
+	 * both poll it, low = pressed.  The sys_led=gpio6/wps_led=gpio7/
+	 * reset_gpio=20 defaults in its NVRAM are never used.  WLAN on E1 is
+	 * verified on the AC8 (rightmost LED).  The port LEDs belong to the
+	 * RTL8367RB (realtek,rtl8197f-ac8-oem-init).
 	 */
 	leds {
 		compatible = "gpio-leds";
@@ -77,30 +80,26 @@
 		led_sys: led-0 {
 			function = LED_FUNCTION_STATUS;
 			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;	/* A6 */
+			gpios = <&gpio0 35 GPIO_ACTIVE_LOW>;	/* E3 */
 		};
 
 		led-1 {
-			function = LED_FUNCTION_WPS;
-			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;	/* A7 */
-		};
-
-		led-2 {
 			function = LED_FUNCTION_WLAN;
 			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&gpio0 33 GPIO_ACTIVE_LOW>;	/* E1 */
 		};
 	};
 
+	/* Polled: the GPIO block is not an interrupt controller here. */
 	keys {
-		compatible = "gpio-keys";
+		compatible = "gpio-keys-polled";
+		poll-interval = <20>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&button_pins>;
 
 		reset {
 			label = "reset";
-			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;	/* C4, WPS/RST */
+			gpios = <&gpio0 36 GPIO_ACTIVE_LOW>;	/* E4, WPS/RST */
 			linux,code = <KEY_RESTART>;
 			debounce-interval = <60>;
 		};
@@ -177,15 +176,17 @@
 		pinctrl-single,bits = <0x34 0x03300000 0x0ff00000>;
 	};
 
-	/* GPIO function of the pins, values from the Realtek 8197F BSP (gpio.c). */
+	/*
+	 * GPIO function of the pins, the values of the pin mux helper of the
+	 * stock firmware (the same as in the Realtek 8197F BSP, gpio.c).
+	 */
 	led_pins: led-pins {
-		pinctrl-single,bits = <0x00 0x00050000 0x000f0000>,	/* A6 */
-				      <0x00 0x00600000 0x00f00000>,	/* A7 */
+		pinctrl-single,bits = <0x44 0x00100000 0x00f00000>,	/* E3 */
 				      <0x44 0x10000000 0xf0000000>;	/* E1 */
 	};
 
 	button_pins: button-pins {
-		pinctrl-single,bits = <0x40 0x00020000 0x000f0000>;	/* C4 */
+		pinctrl-single,bits = <0x44 0x00010000 0x000f0000>;	/* E4 */
 	};
 };
 

@@ -35,7 +35,7 @@ so an initramfs loader can sit above the decompressed kernel.
  		LOADER_DATA="$@" \
 --- a/target/linux/realtek/image/rtl8197f.mk
 +++ b/target/linux/realtek/image/rtl8197f.mk
-@@ -172,3 +172,94 @@
+@@ -172,3 +172,97 @@
    IMAGE/squashfs-spi-full.bin := append-kernel | rtl8197f-image | append-rtl8197f-rootfs | rtl8197f-firmware-budget | pad-rootfs | rtl8197f-firmware-budget | rtl8197f-tenda-mw5-fullflash
  endef
  TARGET_DEVICES += tenda_nova_mw5
@@ -82,7 +82,10 @@ so an initramfs loader can sit above the decompressed kernel.
 +  RTL8197F_BURNADDR := 0x00020000
 +  RTL8197F_HEADER_SIZE := 16
 +  RTL8197F_KERNEL_CMDLINE := console=ttyS0,115200n8 lpj=5000000 rootfstype=squashfs clk_ignore_unused
-+  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools wpad-basic-mbedtls luci luci-theme-footstrap
++  # The realtek target is DEVICE_TYPE basic (switches), so the router
++  # packages (DHCP/DNS server, DHCPv6/RA, PPPoE) come from here.
++  DEVICE_PACKAGES := -uboot-envtools kmod-rtl8192cd-rtl8197f-ac8 wireless-tools wpad-basic-mbedtls \
++    dnsmasq odhcpd-ipv6only ppp ppp-mod-pppoe luci luci-theme-footstrap
 +  # flash.bin is written at 0x20000 by the boot loader or a programmer,
 +  # sysupgrade.bin (the same plus metadata) from OpenWrt.  pad-rootfs puts
 +  # the JFFS2 marker right after the SquashFS, where the rtl8197f-fw split
