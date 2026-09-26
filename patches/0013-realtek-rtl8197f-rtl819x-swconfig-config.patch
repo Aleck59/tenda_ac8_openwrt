@@ -1,16 +1,17 @@
-Subject: [PATCH] realtek: rtl8197f: build the rtl819x Ethernet and rtl8367b swconfig drivers
+Subject: [PATCH] realtek: rtl8197f: build the rtl8367b swconfig driver for the Tenda AC8
 
 ---
 --- a/target/linux/realtek/rtl8197f/config-6.6
 +++ b/target/linux/realtek/rtl8197f/config-6.6
-@@ -339,6 +339,14 @@
+@@ -339,6 +339,15 @@
  CONFIG_RTL8197F_RTKNET=y
  CONFIG_RTL8197F_RD05_OEM_SWITCH_PREINIT=y
  
-+# Tenda AC8: the rtl819x CPU-port driver of the D-Link DIR-842 R1 port and
-+# the rtl8367b swconfig driver for its RTL8367RB-VB (the same chip id as the
-+# DIR-842 RTL8367S).  Built in: rtl819x calls into rtl8367b.
-+CONFIG_NET_RTL819X=y
++# Tenda AC8: rtknet on the SoC side and the rtl8367b swconfig driver for
++# the RTL8367RB-VB, with an 802.1Q trunk between them (as on the TP-Link
++# Archer C2 v1).  The rtl819x driver of the D-Link DIR-842 R1 port needs the
++# ASIC state its boot loader leaves, which the AC8 loader wipes: not built.
++# CONFIG_NET_RTL819X is not set
 +CONFIG_SWCONFIG=y
 +CONFIG_RTL8366_SMI=y
 +CONFIG_RTL8367B_PHY=y

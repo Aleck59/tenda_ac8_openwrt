@@ -6,26 +6,32 @@
 #
 # Both ends have their own RGMII delays.  Each direction depends on one pair:
 #
-#   TX  router -> switch   SoC TX delay + CF_SEL_RGTXC, switch RX delay
-#   RX  switch -> router   switch TX delay, SoC RX delay
+#   TX  router -> switch   SoC TX delay and pads (rtknet), switch RX delay
+#   RX  switch -> router   switch TX delay (EXT1), SoC RX delay (rtknet)
 #
-# TX is measured without a PC: the driver sends test frames and the switch
-# counts them on port 6 (good or with CRC/symbol errors).  RX needs traffic
-# from a PC on a LAN jack: give the PC the address 192.168.1.2/24 and let it
-# ping 192.168.1.1 all the time (Windows: ping -t 192.168.1.1).
+# TX is measured without a PC: the switch driver sends test frames through
+# eth0 and counts them on port 6 (good, with CRC/symbol errors, dropped) and
+# on the jacks.  RX needs traffic from a PC on a LAN jack: it sends DHCP/ARP
+# broadcasts by itself; a static 192.168.1.2/24 with "ping -t 192.168.1.1"
+# (Windows) or "ping 192.168.1.1" makes more.
 #
-# Everything goes through /proc/rtl819x_trunk.  Nothing is written to flash
-# unless you run "ac8-trunk save".
+# Switch side and tests: /proc/ac8_trunk.  SoC side: the rtknet parameters
+# rd05_p0_{tx,rx}_delay and ac8_p0_pad_rd05 (0 = stock AC8 pads, 1 = the
+# RD05 pad bits), applied with "reseed" on /proc/rd05-rtknet.
+# Nothing is written to flash unless you run "ac8-trunk save".
 
 set -u
 
-PROC=/proc/rtl819x_trunk
+PROC=/proc/ac8_trunk
+RTK=/sys/module/rtl8197f_rtknet/parameters
+RTKPROC=/proc/rd05-rtknet
 CONF=/etc/ac8-trunk.conf
 LOG=/tmp/ac8-trunk.log
 
-# Most likely values first (stock AC8: SoC TX 0 + RGTXC 3, RX 7; switch tx 0
-# rx 5; the rtknet/DSA builds worked with SoC TX 1 against switch rx 3).
-SOC_TX_ORDER="0:3 1:3 1:0 0:0 0:1 0:2 1:1 1:2"
+# Most likely values first: stock AC8 = SoC TX 0, RX 7, stock pads against
+# switch tx 0, rx 5; the rtknet/DSA builds got LAN up with SoC TX 1, RX 6 and
+# the RD05 pads against switch rx 3.  SOC_TX_ORDER: TX delay:pads.
+SOC_TX_ORDER="0:0 1:0 0:1 1:1"
 SW_RX_ORDER="5 4 6 3 7 2 1 0"
 SOC_RX_ORDER="7 6 5 4 3 2 1 0"
 SW_TX_ORDER="0 1"
@@ -47,18 +53,19 @@ usage() {
 	cat <<'USAGE'
 Usage: ac8-trunk [command]
 
-  (none)             show both ends of the trunk and the last test
-  test               check both directions with the current values
-  sweep              search working delays (TX first, then RX; ~3 minutes)
-  soc TX RX [RGTXC]  set the SoC delays (TX 0-1, RX 0-7, RGTXC 0-3)
-  sw TX RX           set the switch EXT1 delays (TX 0-1, RX 0-7)
-  boot               boot check: test, search the TX delays if TX fails
-                     (no PC needed), print the result on the serial console
-  save               keep the current values across reboots
-  reset              forget the saved values (firmware defaults after reboot)
+  (none)       show both ends of the trunk and the last test
+  test         check both directions with the current values
+  sweep        search working delays (TX first, then RX; ~2 minutes)
+  soc TX RX [PAD]  set the SoC delays (TX 0-1, RX 0-7) and pads
+               (0 stock AC8, 1 RD05)
+  sw TX RX     set the switch EXT1 delays (TX 0-1, RX 0-7)
+  boot         boot check: test, search the TX delays if TX fails (no PC
+               needed), print the result on the serial console
+  save         keep the current values across reboots
+  reset        forget the saved values (firmware defaults after reboot)
 
-For "test" and "sweep" connect a PC to a LAN jack, set its address to
-192.168.1.2/24 and run "ping -t 192.168.1.1" on it (Linux: ping 192.168.1.1).
+For "test" and "sweep" keep a PC on a LAN jack; with a static address
+192.168.1.2/24 and "ping -t 192.168.1.1" on it the RX check sees more frames.
 USAGE
 }
 
@@ -75,12 +82,33 @@ last() {
 	sed -n 's/^last //p' "$PROC"
 }
 
+eth0_up() {
+	grep -q '^eth0: up' "$PROC"
+}
+
 cur_soc() {
-	echo "$(field soc-config tx_delay) $(field soc-config rx_delay) $(field soc-config rgtxc)"
+	echo "$(cat $RTK/rd05_p0_tx_delay 2>/dev/null) $(cat $RTK/rd05_p0_rx_delay 2>/dev/null) $(cat $RTK/ac8_p0_pad_rd05 2>/dev/null)"
 }
 
 cur_sw() {
 	echo "$(field sw tx_delay) $(field sw rx_delay)"
+}
+
+# soc_set TX RX [PAD]: rtknet reads the parameters at every P0 setup;
+# "reseed" restarts the CPU interface with them when eth0 is up.
+soc_set() {
+	case "${1:-}:${2:-}:${3:-0}" in
+	[01]:[0-7]:[01]) ;;
+	*) return 1 ;;
+	esac
+	echo "$1" > $RTK/rd05_p0_tx_delay 2>/dev/null || return 1
+	echo "$2" > $RTK/rd05_p0_rx_delay 2>/dev/null || return 1
+	[ -n "${3:-}" ] && { echo "$3" > $RTK/ac8_p0_pad_rd05 2>/dev/null || return 1; }
+	if eth0_up; then
+		echo reseed > $RTKPROC 2>/dev/null || return 1
+		sleep 2
+	fi
+	return 0
 }
 
 # txtest: prints "good errored"
@@ -116,10 +144,45 @@ rx_verdict() {
 	return 1
 }
 
+# middle value of a newline-separated, sorted list
+middle() {
+	echo "$1" | sed -n "$(( ($(echo "$1" | wc -l) + 1) / 2 ))p"
+}
+
+# TX search: needs no PC.  Keeps the SoC RX and switch TX values.  Picks the
+# SoC TX delay + pads with the widest window of switch RX delays, and its
+# middle.
+tx_search() {
+	local soc_rx sw_tx pair tx pad rx s="" best w
+	set -- $(cur_soc); soc_rx=$2
+	set -- $(cur_sw); sw_tx=$1
+	for pair in $SOC_TX_ORDER; do
+		tx=${pair%:*}; pad=${pair#*:}
+		soc_set "$tx" "$soc_rx" "$pad" || return 1
+		w=""
+		for rx in $SW_RX_ORDER; do
+			wr "sw $sw_tx $rx" || return 1
+			sleep 1
+			tx_ok 50 && w="$w,$rx"
+		done
+		say "TX search: SoC TX $tx pads $pad: switch RX ok: $([ -n "$w" ] && echo "${w#,}" || echo none)"
+		[ -n "$w" ] && s="$s ${#w}:$tx:$pad:${w#,}"
+	done
+	[ -n "$s" ] || return 1
+	best=$(echo $s | tr ' ' '\n' | awk -F: '$1 > m { m = $1; b = $0 } END { print b }')
+	tx=$(echo "$best" | cut -d: -f2)
+	pad=$(echo "$best" | cut -d: -f3)
+	rx=$(middle "$(echo "$best" | cut -d: -f4 | tr ',' '\n' | sort -n)")
+	soc_set "$tx" "$soc_rx" "$pad"; wr "sw $sw_tx $rx"
+	say "TX search: using soc $tx $soc_rx $pad / sw $sw_tx $rx"
+	return 0
+}
+
 do_test() {
 	local n=200 v
 	say "== $(date) ac8-trunk test"
 	say "$(cat "$PROC")"
+	say "soc-config (rtknet): tx_delay rx_delay pads: $(cur_soc)"
 	set -- $(txtest $n)
 	say "$(last)"
 	if [ "${1:-0}" -ge $n ] && [ "${2:--1}" -eq 0 ]; then
@@ -132,53 +195,26 @@ do_test() {
 }
 
 do_sweep() {
-	local soc_rx sw_tx soc0 sw0 pair tx rgtxc rx good="" s best="" v traffic
-	grep -q '^eth0: up' "$PROC" || die "eth0 is down (ifup lan first)"
+	local soc0 sw0 soc_tx soc_rx soc_pad sw_tx sw_rx s="" v traffic=0
+	eth0_up || die "eth0 is down (ifup lan first)"
 	soc0=$(cur_soc)
 	sw0=$(cur_sw)
-	set -- $soc0; soc_rx=$2
-	set -- $sw0; sw_tx=$1
 	say "== $(date) ac8-trunk sweep, start: soc $soc0 / sw $sw0"
 
-	say "-- TX router -> switch (SoC TX:RGTXC x switch RX)"
-	for pair in $SOC_TX_ORDER; do
-		tx=${pair%:*}; rgtxc=${pair#*:}
-		wr "soc $tx $soc_rx $rgtxc" || die "cannot set the SoC delays"
-		s=""
-		for rx in $SW_RX_ORDER; do
-			wr "sw $sw_tx $rx" || die "cannot set the switch delays"
-			sleep 1
-			if tx_ok 100; then
-				s="$s $rx"
-			fi
-		done
-		say "   soc tx $tx rgtxc $rgtxc: switch rx ok:${s:- none}"
-		[ -n "$s" ] && good="$good $tx:$rgtxc:$(echo $s | tr ' ' ',')"
-	done
-	if [ -z "$good" ]; then
+	say "-- TX router -> switch (SoC TX x switch RX)"
+	if ! tx_search; then
 		say "No working TX combination.  Restoring soc $soc0 / sw $sw0."
-		wr "soc $soc0"; wr "sw $sw0"
+		soc_set $soc0; wr "sw $sw0"
 		return 1
 	fi
-	# prefer the SoC setting with the widest switch window, its middle value
-	best=$(for g in $good; do
-		w=${g##*:}
-		echo "$(echo "$w" | tr ',' '\n' | wc -l) $g"
-	done | awk '$1 > m { m = $1; b = $2 } END { print b }')
-	tx=$(echo "$best" | cut -d: -f1); rgtxc=$(echo "$best" | cut -d: -f2)
-	s=$(echo "$best" | cut -d: -f3 | tr ',' '\n' | sort -n)
-	rx=$(echo "$s" | sed -n "$(( ($(echo "$s" | wc -l) + 1) / 2 ))p")
-	wr "soc $tx $soc_rx $rgtxc"; wr "sw $sw_tx $rx"
-	say "TX: using soc tx $tx rgtxc $rgtxc, switch rx $rx"
+	set -- $(cur_soc); soc_tx=$1; soc_pad=${3:-0}
+	set -- $(cur_sw); sw_rx=$2
 
-	say "-- RX switch -> router (switch TX x SoC RX; needs the PC ping)"
-	s=""
-	traffic=0
+	say "-- RX switch -> router (switch TX x SoC RX; needs traffic from the PC)"
 	for sw_tx in $SW_TX_ORDER; do
-		wr "sw $sw_tx $rx"
+		wr "sw $sw_tx $sw_rx"
 		for soc_rx in $SOC_RX_ORDER; do
-			wr "soc $tx $soc_rx $rgtxc"
-			sleep 1
+			soc_set "$soc_tx" "$soc_rx" "$soc_pad"
 			v=$(rx_verdict 3)
 			case $? in
 			0) s="$s $sw_tx:$soc_rx"; traffic=1 ;;
@@ -190,53 +226,24 @@ do_sweep() {
 	if [ -z "$s" ]; then
 		set -- $soc0
 		[ $traffic = 1 ] ||
-			say "The PC sent nothing: is it pinging 192.168.1.1 from 192.168.1.2?"
+			say "The PC sent nothing: is it connected to a LAN jack?"
 		say "No working RX combination.  Keeping TX, restoring SoC RX $2 / switch TX ${sw0%% *}."
-		wr "soc $tx $2 $rgtxc"; wr "sw ${sw0%% *} $rx"
+		soc_set "$soc_tx" "$2" "$soc_pad"; wr "sw ${sw0%% *} $sw_rx"
 		return 1
 	fi
 	# middle of the SoC RX window of the first switch TX value that works
 	sw_tx=$(echo $s | tr ' ' '\n' | head -n1 | cut -d: -f1)
-	v=$(echo $s | tr ' ' '\n' | sed -n "s/^$sw_tx://p" | sort -n)
-	soc_rx=$(echo "$v" | sed -n "$(( ($(echo "$v" | wc -l) + 1) / 2 ))p")
-	wr "sw $sw_tx $rx"; wr "soc $tx $soc_rx $rgtxc"
+	soc_rx=$(middle "$(echo $s | tr ' ' '\n' | sed -n "s/^$sw_tx://p" | sort -n)")
+	wr "sw $sw_tx $sw_rx"; soc_set "$soc_tx" "$soc_rx" "$soc_pad"
 	say "RX: using switch tx $sw_tx, soc rx $soc_rx"
-	say "Result: soc $tx $soc_rx $rgtxc / sw $sw_tx $rx"
+	say "Result: soc $soc_tx $soc_rx $soc_pad / sw $sw_tx $sw_rx"
 	say "Run \"ac8-trunk test\", then \"ac8-trunk save\" to keep it.  Log: $LOG"
-}
-
-# TX search only: needs no PC.  Keeps the SoC RX and switch TX values.
-tx_search() {
-	local soc_rx sw_tx pair tx rgtxc rx s="" best="" w
-	set -- $(cur_soc); soc_rx=$2
-	set -- $(cur_sw); sw_tx=$1
-	for pair in $SOC_TX_ORDER; do
-		tx=${pair%:*}; rgtxc=${pair#*:}
-		wr "soc $tx $soc_rx $rgtxc" || return 1
-		w=""
-		for rx in $SW_RX_ORDER; do
-			wr "sw $sw_tx $rx" || return 1
-			sleep 1
-			tx_ok 50 && w="$w,$rx"
-		done
-		[ -n "$w" ] && s="$s ${#w}:$tx:$rgtxc:${w#,}"
-	done
-	[ -n "$s" ] || return 1
-	# widest window of switch RX values; its middle value
-	best=$(echo $s | tr ' ' '\n' | awk -F: '$1 > m { m = $1; b = $0 } END { print b }')
-	tx=$(echo "$best" | cut -d: -f2); rgtxc=$(echo "$best" | cut -d: -f3)
-	w=$(echo "$best" | cut -d: -f4 | tr ',' '\n' | sort -n)
-	rx=$(echo "$w" | sed -n "$(( ($(echo "$w" | wc -l) + 1) / 2 ))p")
-	wr "soc $tx $soc_rx $rgtxc"; wr "sw $sw_tx $rx"
-	say "TX search: working SoC TX:RGTXC:switch RX windows:$s"
-	say "TX search: using soc $tx $soc_rx $rgtxc / sw $sw_tx $rx"
-	return 0
 }
 
 do_boot() {
 	local n=200 v
 	CONSOLE=1
-	grep -q '^eth0: up' "$PROC" || { say "eth0 is down, no check"; return 1; }
+	eth0_up || { say "eth0 is down, no check"; return 1; }
 	say "$(grep -E '^(soc|sw):' "$PROC" | tr '\n' ' ')"
 	set -- $(txtest $n)
 	say "$(last)"
@@ -245,7 +252,7 @@ do_boot() {
 	else
 		say "TX router -> switch: FAIL (sent $n, switch got ${1:-?} good, ${2:-?} errored); searching delays"
 		if tx_search; then
-			set -- $(txtest $n)
+			txtest $n >/dev/null
 			say "TX after search: $(last)"
 		else
 			say "TX search: no SoC/switch delay pair passes"
@@ -253,27 +260,28 @@ do_boot() {
 	fi
 	v=$(rx_verdict 10)
 	say "RX switch -> router (10 s): $v"
-	say "details: ac8-trunk; ac8-trunk test; ac8-trunk sweep (with a PC pinging 192.168.1.1)"
+	say "details: ac8-trunk; ac8-trunk test; ac8-trunk sweep"
 }
 
-[ -w "$PROC" ] || die "$PROC not found (rtl819x Ethernet driver not loaded)"
+[ -w "$PROC" ] || die "$PROC not found (rtl8367b switch driver not loaded)"
 
 case "${1:-}" in
 "")
 	cat "$PROC"
+	echo "soc-config (rtknet): tx_delay rx_delay pads: $(cur_soc)"
 	[ -f "$CONF" ] && echo "saved ($CONF): $(tr '\n' ' ' < "$CONF")"
 	;;
 test)	do_test ;;
-boot)	do_boot ;;
 sweep)	do_sweep ;;
+boot)	do_boot ;;
 soc)
 	shift
-	wr "soc $*" || die "invalid values: soc TX(0-1) RX(0-7) [RGTXC(0-3)]"
+	soc_set "${1:-}" "${2:-}" "${3:-}" || die "invalid values: soc TX(0-1) RX(0-7) [PAD(0-1)]"
 	grep '^soc' "$PROC"
 	;;
 sw)
 	shift
-	wr "sw $*" || die "invalid values: sw TX(0-1) RX(0-7)"
+	wr "sw ${1:-} ${2:-}" || die "invalid values: sw TX(0-1) RX(0-7)"
 	grep '^sw' "$PROC"
 	;;
 save)

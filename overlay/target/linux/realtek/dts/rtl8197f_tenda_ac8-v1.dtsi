@@ -22,9 +22,10 @@
  * NOT verified on hardware (taken from the Tenda AC23 profile of the
  * RTL8197F port, which uses the same RTL8197FH + RTL8367RB design, and
  * from the Xiaomi RD05 profile for the SoC side of the link):
- *   - Ethernet with the rtl819x + rtl8367b drivers of the D-Link DIR-842 R1
- *     port (with rtknet + rtl8365mb DSA frames from the PC arrived, but
- *     the router's own frames did not reliably reach the PC);
+ *   - Ethernet with rtknet + the swconfig rtl8367b driver and an 802.1Q
+ *     trunk (rtknet + rtl8365mb DSA passed traffic both ways with a static
+ *     address, but stopped after a cable replug; the rtl819x driver of the
+ *     D-Link DIR-842 R1 port sent nothing to the switch);
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
  *   - the SYS LED and the button (GPIOs from the code of the stock AC8 v1
@@ -112,11 +113,10 @@
 	 * chip and runs the RTL8367C init like the stock rtk_switch_init().
 	 * realtek,extif: CPU port 6 = EXT1, RGMII delays tx 0 / rx 5 (the
 	 * values the stock switch init ends with), RGMII, forced 1000/full,
-	 * pause off (rtl819x also turns it off on the SoC side).
+	 * pause off.
 	 * realtek,rtl8197f-ac8-oem-init: the rest of the stock init (port LED
-	 * pins and mode, thresholds, SSC).  realtek,cpu-tag-insert-all: the
-	 * CPU tag in every frame to the SoC, which rtl819x decodes.
-	 * Jacks: ports 0-3 LAN, port 4 WAN.
+	 * pins and mode, thresholds, SSC).  Port 6 is a tagged member of
+	 * VLAN 1 (WAN, port 4) and VLAN 2 (LAN, ports 0-3), see 02_network.
 	 */
 	rtl8367b {
 		compatible = "realtek,rtl8367b";
@@ -126,7 +126,6 @@
 		gpio-sck = <&gpio0 56 GPIO_ACTIVE_HIGH>;	/* H0, MDC */
 		gpio-sda = <&gpio0 55 GPIO_ACTIVE_HIGH>;	/* G7, MDIO */
 		realtek,rtl8197f-ac8-oem-init;
-		realtek,cpu-tag-insert-all;
 	};
 };
 
@@ -188,23 +187,35 @@
 };
 
 /*
- * rtl819x (D-Link DIR-842 R1 port) instead of rtknet: the SoC inserts and
- * strips the 4-byte Realtek CPU tag in hardware (P0GMIICR CFG_CPUC_TAG), the
- * RX descriptor names the jack, and the driver hands LAN (VID 2) and WAN
- * (VID 1) to Linux as eth0.2 / eth0.1.  The loader gates the switch-core
- * clock before it jumps to the kernel, so its P0 setup is lost and the driver
- * programs the trunk itself: the values of stock init_8197f_p0 (CPU tag,
- * CF_SEL_RGTXC 3, TX delay 0, RX delay 7) against the switch EXT1 side of
- * the stock switch init (tx 0, rx 5).  The pad drive is the value the stock
- * firmware writes, (v & 0x01bfffff) | 0xd8000000.  Stock also resets the
- * switch core and initialises its table SRAM at every Ethernet init.
+ * rtknet, the CPU-port driver of this RTL8197F tree, which initialises the
+ * CPU interface and the switch-core tables itself (the loader gates the
+ * switch-core clock before it jumps to the kernel, so nothing of its setup
+ * survives) and sends every frame straight to physical P0.  It passed
+ * traffic both ways on the AC8 with the DSA builds.  The trunk to the
+ * RTL8367 carries plain 802.1Q frames (VLAN 1 WAN, VLAN 2 LAN; swconfig,
+ * as on the TP-Link Archer C2 v1): no CPU tag on either side.  RGMII: the
+ * values of the stock init_8197f_p0 (CF_SEL_RGTXC 3, which rtknet always
+ * sets, TX delay 0, RX delay 7) against the stock switch EXT1 side (tx 0,
+ * rx 5).  Runtime parameters: /sys/module/rtl8197f_rtknet/parameters/
+ * rd05_p0_{tx,rx}_delay, applied with "echo reseed > /proc/rd05-rtknet"
+ * (ac8-trunk does both).
  */
 &ethernet0 {
-	compatible = "realtek,rtl8197f-eth";
+	realtek,tx-port-mask = <0x1>;
+	realtek,tx-dp-ext = <0x0>;
+	realtek,tx-extspa = <0x0>;
+	realtek,rx-poll-fallback;
+	realtek,rx-poll-ms = <50>;
+	realtek,sdk-cpuicr1-init;
+	realtek,sdk-swcore-init;
+	realtek,sdk-trxrdy;
+	/* SoC-side VID9/L2/netif host-link seed for P0. */
+	realtek,legacy-rd05-sdk-pipeline;
+	realtek,p0-cpu-tag-pass-through;
+	/* Descriptor lengths include the FCS, as in the Realtek SDK. */
+	realtek,sdk-crc-lengths;
 	realtek,p0-rgmii-tx-delay = <0>;
 	realtek,p0-rgmii-rx-delay = <7>;
-	realtek,probe-fabric-reset;
-	realtek,rgmii-pad = <0x01bfffff 0xd8000000>;
 	status = "okay";
 };
 

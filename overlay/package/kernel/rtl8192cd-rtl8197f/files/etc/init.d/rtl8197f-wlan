@@ -77,6 +77,12 @@ start() {
 	(
 		echo "$mode" > "$GUARD"
 		sync
+		# The driver needs one physically contiguous 1.4 MB block per
+		# radio (struct rtl8192cd_hw, an order-9 allocation): free the
+		# page cache and compact memory first.
+		echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+		echo 1 > /proc/sys/vm/compact_memory 2>/dev/null
+		con "memory: $(sed -n 's/^MemFree: *//p' /proc/meminfo) free, free blocks by order: $(sed -n 's/^Node 0, zone *Normal *//p' /proc/buddyinfo | tr -s ' ')"
 		/usr/sbin/rtl8197f-wlan-load --"$mode" >"$LOG" 2>&1
 		rc=$?
 		# Killed by an oops, or stuck in its init: not this mode again.

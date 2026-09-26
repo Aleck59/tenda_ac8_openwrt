@@ -1,0 +1,45 @@
+Subject: [PATCH] realtek: rtl8197f-rtknet: stock RGMII pad setting on the Tenda AC8
+
+rtknet programs the P0 RGMII pads of every RTL8197F-VG board like the
+Xiaomi RD05: drive 6/6 plus RGMII_MODE (bit 25), TX_E2 (bit 22) and bit
+21, 0xdbffff7f on the AC8.  The stock AC8 firmware (init_8197f_p0 at
+0x8010f9e8) writes (v & 0x01bfffff) | 0xd8000000 instead: the same drive,
+bits 25 and 22 cleared, bit 21 left at the loader value (0), 0xd99fff7f.
+With the RD05 value, frames from the PC reached the AC8 but most of the
+AC8's own frames never reached the PC.  Use the stock value on the AC8;
+the runtime parameter ac8_p0_pad_rd05=1 restores the RD05 bits (applied
+at the next P0 setup, e.g. "echo reseed > /proc/rd05-rtknet").
+
+---
+--- a/target/linux/realtek/files-6.6/drivers/net/ethernet/rtl8197f_rtknet.c
++++ b/target/linux/realtek/files-6.6/drivers/net/ethernet/rtl8197f_rtknet.c
+@@ -460,6 +460,13 @@
+ module_param_named(rd05_p0_cpu_tag, rd05_p0_cpu_tag, int, 0644);
+ MODULE_PARM_DESC(rd05_p0_cpu_tag, "RD05-class P0 CPU tag: -1 board default, bit0 RX parser, bit1 TX generator");
+ 
++/* Tenda AC8 P0 pads: 0 = the stock AC8 value (RGMII_MODE, TX_E2 and bit 21
++ * clear), 1 = the RD05 value.  Takes effect on the next P0 setup.
++ */
++static int ac8_p0_pad_rd05;
++module_param_named(ac8_p0_pad_rd05, ac8_p0_pad_rd05, int, 0644);
++MODULE_PARM_DESC(ac8_p0_pad_rd05, "Tenda AC8 P0 RGMII pads: 0 stock AC8 (bits 25/22/21 clear), 1 RD05 (set)");
++
+ static atomic_t rd05_txdesc_trace_count = ATOMIC_INIT(0);
+ 
+ 
+@@ -1574,7 +1581,14 @@
+ 			 RTL_RTK_PAD_P0_VG_BIT21);
+ 		pad |= (RTL_RTK_PAD_P0_DRIVE_VG << RTL_RTK_PAD_P0_RGMII_DN_SHIFT) |
+ 		       (RTL_RTK_PAD_P0_DRIVE_VG << RTL_RTK_PAD_P0_RGMII_DP_SHIFT);
+-		if (!mw5)
++		/* Tenda AC8: the stock init_8197f_p0() writes the pads as
++		 * (v & 0x01bfffff) | 0xd8000000, i.e. drive 6/6 with RGMII_MODE,
++		 * TX_E2 and bit 21 (loader value) clear.  With the RD05 bits set,
++		 * most frames of the DSA builds from the SoC never reached the
++		 * PC, while frames from the PC reached the SoC.
++		 */
++		if (!mw5 && (!of_machine_is_compatible("tenda,ac8-v1") ||
++			     READ_ONCE(ac8_p0_pad_rd05)))
+ 			pad |= RTL_RTK_PAD_P0_RGMII_MODE |
+ 			       RTL_RTK_PAD_P0_TX_E2 |
+ 			       RTL_RTK_PAD_P0_VG_BIT21;

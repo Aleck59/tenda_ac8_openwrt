@@ -5,9 +5,9 @@
  *
  * Tenda AC8 v1 (RTL8197F + RTL8367RB-VB on EXT1): the OpenWrt 24.10 driver
  * (the one of the TP-Link Archer C2 v1 and the other RTL8367 boards) plus
- * what the AC8 stock switch init adds after rtk_switch_init(), the CPU tag
- * of the rtl819x CPU-port driver and the run-time trunk helpers it uses
- * (/proc/rtl819x_trunk).
+ * what the AC8 stock switch init adds after rtk_switch_init(), an optional
+ * CPU tag (realtek,cpu-tag-insert-all) and the run-time trunk checks of
+ * /proc/ac8_trunk.
  *
  * Copyright (C) 2012 Gabor Juhos <juhosg@openwrt.org>
  *
@@ -25,6 +25,14 @@
 #include <linux/delay.h>
 #include <linux/skbuff.h>
 #include <linux/rtl8367.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+#include <linux/if_vlan.h>
+#include <net/net_namespace.h>
 
 #include "rtl8366_smi.h"
 
@@ -1150,6 +1158,262 @@ int rtl8367s_mib_sum(int port, const char *const *names, u64 *sum)
 }
 EXPORT_SYMBOL(rtl8367s_mib_sum);
 
+/*
+ * /proc/ac8_trunk (Tenda AC8): the RGMII trunk between SoC P0 and EXT1 (port
+ * 6), seen from the switch.  The SoC side delays belong to the CPU-port driver
+ * (rtknet: /sys/module/rtl8197f_rtknet/parameters/rd05_p0_{tx,rx}_delay);
+ * ac8-trunk handles both.
+ *
+ *   cat  /proc/ac8_trunk          SoC P0GMIICR, switch EXT1 registers, eth0
+ *                                 counters, result of the last test
+ *   echo "sw TX RX" > ...         EXT1 RGMII delays (0x1307), kept over resets
+ *   echo "txtest [N]" > ...       send N broadcast frames (60/1514 bytes,
+ *                                 ethertype 0x88b5, VLAN 2) through eth0 and
+ *                                 count what port 6 received: good, with
+ *                                 FCS/symbol/fragment errors, dropped; and
+ *                                 what the jacks (ports 0-4) sent
+ *   echo "rxtest [SECONDS]" > ... frames port 6 sent to the SoC versus frames
+ *                                 eth0 received, over SECONDS
+ */
+#define AC8_TRUNK_PORT		6
+#define AC8_TRUNK_LAN_VID	2
+#define AC8_P0GMIICR_PHYS	0x1b80414c
+#define AC8_RGMII_PAD_PHYS	0x18000850
+
+static const char *const ac8_rx_good[] = {
+	"ifInUcastPkts", "ifInMulticastPkts", "ifInBroadcastPkts", NULL
+};
+static const char *const ac8_rx_bad[] = {
+	"dot3StatsFCSErrors", "dot3StatsSymbolErrors", "etherStatsFragments",
+	"etherStatsUnderSizePkts", "etherStatsJabbers", NULL
+};
+static const char *const ac8_rx_drop[] = {
+	"dot1dTpPortInDiscards", "etherStatsDropEvents", NULL
+};
+static const char *const ac8_tx_all[] = {
+	"ifOutUcastPkts", "ifOutMulticastPkts", "ifOutBroadcastPkts", NULL
+};
+
+static void __iomem *ac8_p0gmiicr;
+static void __iomem *ac8_rgmii_pad;
+static char ac8_trunk_last[256];
+static DEFINE_MUTEX(ac8_trunk_lock);
+
+static int ac8_jacks_out(u64 *sum)
+{
+	u64 v;
+	int p, err;
+
+	*sum = 0;
+	for (p = 0; p <= 4; p++) {
+		err = rtl8367s_mib_sum(p, ac8_tx_all, &v);
+		if (err)
+			return err;
+		*sum += v;
+	}
+	return 0;
+}
+
+static u64 ac8_rx_packets(struct net_device *dev)
+{
+	struct rtnl_link_stats64 st;
+
+	dev_get_stats(dev, &st);
+	return st.rx_packets;
+}
+
+static void ac8_trunk_txtest(struct net_device *dev, int n)
+{
+	u64 good0 = 0, bad0 = 0, drop0 = 0, out0 = 0;
+	u64 good1 = 0, bad1 = 0, drop1 = 0, out1 = 0;
+	int i, j, sent = 0, err;
+
+	err = rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_rx_good, &good0);
+	err = err ?: rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_rx_bad, &bad0);
+	err = err ?: rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_rx_drop, &drop0);
+	err = err ?: ac8_jacks_out(&out0);
+	for (i = 0; i < n; i++) {
+		unsigned int len = (i & 1) ? ETH_FRAME_LEN : ETH_ZLEN;
+		struct sk_buff *skb = netdev_alloc_skb(dev, len);
+		struct ethhdr *eth;
+		u8 *p;
+
+		if (!skb)
+			break;
+		p = skb_put(skb, len);
+		for (j = ETH_HLEN; j < len; j++)
+			p[j] = (u8)(j * 7 + i);
+		eth = (struct ethhdr *)p;
+		eth_broadcast_addr(eth->h_dest);
+		ether_addr_copy(eth->h_source, dev->dev_addr);
+		eth->h_proto = htons(ETH_P_802_EX1);
+		skb_reset_mac_header(skb);
+		skb->protocol = eth->h_proto;
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), AC8_TRUNK_LAN_VID);
+		if (dev_queue_xmit(skb) == NET_XMIT_SUCCESS)
+			sent++;
+		if ((i & 7) == 7)
+			msleep(2);
+	}
+	msleep(300);
+	err = err ?: rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_rx_good, &good1);
+	err = err ?: rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_rx_bad, &bad1);
+	err = err ?: rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_rx_drop, &drop1);
+	err = err ?: ac8_jacks_out(&out1);
+	if (err)
+		snprintf(ac8_trunk_last, sizeof(ac8_trunk_last),
+			 "txtest: sent %d of %d, switch counters unreadable (%d)\n",
+			 sent, n, err);
+	else
+		snprintf(ac8_trunk_last, sizeof(ac8_trunk_last),
+			 "txtest: sent %d of %d, switch port %d received good %llu errored %llu dropped %llu, jacks sent %llu\n",
+			 sent, n, AC8_TRUNK_PORT, good1 - good0, bad1 - bad0,
+			 drop1 - drop0, out1 - out0);
+	pr_info("rtl8367b: %s", ac8_trunk_last);
+}
+
+static void ac8_trunk_rxtest(struct net_device *dev, int secs)
+{
+	u64 rx0 = ac8_rx_packets(dev), rx1, out0 = 0, out1 = 0;
+	int err;
+
+	err = rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_tx_all, &out0);
+	msleep(secs * 1000);
+	err = err ?: rtl8367s_mib_sum(AC8_TRUNK_PORT, ac8_tx_all, &out1);
+	rx1 = ac8_rx_packets(dev);
+	if (err)
+		snprintf(ac8_trunk_last, sizeof(ac8_trunk_last),
+			 "rxtest: %ds, eth0 received %llu, switch counters unreadable (%d)\n",
+			 secs, rx1 - rx0, err);
+	else
+		snprintf(ac8_trunk_last, sizeof(ac8_trunk_last),
+			 "rxtest: %ds, switch port %d sent %llu, eth0 received %llu\n",
+			 secs, AC8_TRUNK_PORT, out1 - out0, rx1 - rx0);
+	pr_info("rtl8367b: %s", ac8_trunk_last);
+}
+
+static int ac8_trunk_show(struct seq_file *m, void *v)
+{
+	u32 dis = 0, rgmxf = 0, force = 0;
+	struct net_device *dev;
+
+	if (ac8_p0gmiicr) {
+		u32 g = readl(ac8_p0gmiicr);
+
+		seq_printf(m, "soc: P0GMIICR=%08x tx_delay=%u rx_delay=%u rgtxc=%u conf_done=%u cpu_tag=%u PAD=%08x\n",
+			   g, !!(g & BIT(4)), g & 7, (g >> 18) & 3,
+			   !!(g & BIT(6)), (g >> 25) & 3,
+			   ac8_rgmii_pad ? readl(ac8_rgmii_pad) : 0);
+	}
+	if (rtl8367s_ext1_delay(-1, -1, &dis, &rgmxf, &force))
+		seq_puts(m, "sw: switch not set up\n");
+	else
+		seq_printf(m, "sw: EXT1 0x1305=%04x 0x1307=%04x tx_delay=%u rx_delay=%u 0x1311=%04x\n",
+			   dis, rgmxf, !!(rgmxf & BIT(3)), rgmxf & 7, force);
+	dev = dev_get_by_name(&init_net, "eth0");
+	if (dev) {
+		struct rtnl_link_stats64 st;
+
+		dev_get_stats(dev, &st);
+		seq_printf(m, "eth0: %s rx_packets=%llu tx_packets=%llu rx_dropped=%llu rx_errors=%llu\n",
+			   netif_running(dev) ? "up" : "down",
+			   st.rx_packets, st.tx_packets, st.rx_dropped,
+			   st.rx_errors);
+		dev_put(dev);
+	}
+	if (ac8_trunk_last[0])
+		seq_printf(m, "last %s", ac8_trunk_last);
+	return 0;
+}
+
+static int ac8_trunk_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ac8_trunk_show, NULL);
+}
+
+static ssize_t ac8_trunk_write(struct file *file, const char __user *ubuf,
+			       size_t count, loff_t *ppos)
+{
+	struct net_device *dev;
+	char buf[48];
+	int a = -1, b = -1, n, err = 0;
+
+	if (count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, count))
+		return -EFAULT;
+	buf[count] = 0;
+
+	if (!strncmp(buf, "sw ", 3)) {
+		u32 rgmxf = 0;
+
+		if (sscanf(buf + 3, "%d %d", &a, &b) != 2 ||
+		    a < 0 || a > 1 || b < 0 || b > 7)
+			return -EINVAL;
+		err = rtl8367s_ext1_delay(a, b, NULL, &rgmxf, NULL);
+		if (err)
+			return err;
+		pr_info("rtl8367b: AC8: EXT1 tx delay %d rx delay %d (0x1307=%04x)\n",
+			a, b, rgmxf);
+		return count;
+	}
+
+	dev = dev_get_by_name(&init_net, "eth0");
+	if (!dev)
+		return -ENODEV;
+	mutex_lock(&ac8_trunk_lock);
+	if (!strncmp(buf, "txtest", 6)) {
+		n = 200;
+		if (sscanf(buf + 6, "%d", &n) == 1 && (n < 1 || n > 10000))
+			err = -EINVAL;
+		else if (!netif_running(dev))
+			err = -ENETDOWN;
+		else
+			ac8_trunk_txtest(dev, n);
+	} else if (!strncmp(buf, "rxtest", 6)) {
+		n = 5;
+		if (sscanf(buf + 6, "%d", &n) == 1 && (n < 1 || n > 60))
+			err = -EINVAL;
+		else
+			ac8_trunk_rxtest(dev, n);
+	} else {
+		err = -EINVAL;
+	}
+	mutex_unlock(&ac8_trunk_lock);
+	dev_put(dev);
+	return err ? err : count;
+}
+
+static const struct proc_ops ac8_trunk_fops = {
+	.proc_open	= ac8_trunk_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+	.proc_write	= ac8_trunk_write,
+};
+
+static void ac8_trunk_proc_init(struct rtl8366_smi *smi)
+{
+	if (!smi->parent->of_node ||
+	    !of_property_read_bool(smi->parent->of_node,
+				   "realtek,rtl8197f-ac8-oem-init"))
+		return;
+	ac8_p0gmiicr = ioremap(AC8_P0GMIICR_PHYS, 4);
+	ac8_rgmii_pad = ioremap(AC8_RGMII_PAD_PHYS, 4);
+	proc_create("ac8_trunk", 0644, NULL, &ac8_trunk_fops);
+}
+
+static void ac8_trunk_proc_exit(void)
+{
+	remove_proc_entry("ac8_trunk", NULL);
+	if (ac8_p0gmiicr)
+		iounmap(ac8_p0gmiicr);
+	if (ac8_rgmii_pad)
+		iounmap(ac8_rgmii_pad);
+	ac8_p0gmiicr = NULL;
+	ac8_rgmii_pad = NULL;
+}
+
 static int rtl8367b_get_vlan_4k(struct rtl8366_smi *smi, u32 vid,
 				struct rtl8366_vlan_4k *vlan4k)
 {
@@ -1790,6 +2054,7 @@ static int  rtl8367b_probe(struct platform_device *pdev)
 	if (err)
 		goto err_clear_drvdata;
 
+	ac8_trunk_proc_init(smi);
 	return 0;
 
  err_clear_drvdata:
@@ -1807,8 +2072,10 @@ static int rtl8367b_remove(struct platform_device *pdev)
 	struct rtl8366_smi *smi = platform_get_drvdata(pdev);
 
 	if (smi) {
-		if (rtl8367_ac8_smi == smi)
+		if (rtl8367_ac8_smi == smi) {
+			ac8_trunk_proc_exit();
 			rtl8367_ac8_smi = NULL;
+		}
 		rtl8367b_switch_cleanup(smi);
 		platform_set_drvdata(pdev, NULL);
 		rtl8366_smi_cleanup(smi);

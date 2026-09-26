@@ -1,0 +1,284 @@
+Subject: [PATCH] rtl8192cd: sleeping allocations in the probe, NULL check in its error path
+
+On the Tenda AC8 the driver load died with
+
+  Can't kmalloc for rtl8192cd_hw (size 1389668)
+  Unable to handle kernel paging request at virtual address 000051dc
+  epc rtl8192cd_init_one+0x1dc
+
+struct rtl8192cd_hw is 1.39 MB, an order-9 (2 MB) block, and
+rtl8192cd_init_one() asks for it, like for every other probe-time
+structure, with GFP_ATOMIC: no reclaim, no compaction.  A couple of
+minutes after boot the page allocator has no free 2 MB block left.  The
+probe runs in process context (insmod -> PCI/platform probe, cfg80211
+for virtual interfaces) and already allocates the site survey with
+GFP_KERNEL, so the kmalloc()s of rtl8192cd_init_one() use GFP_KERNEL,
+which lets the kernel compact memory (CONFIG_COMPACTION=y).
+
+The error path then read pshare->rsv_buf with pshare still NULL (offset
+0x51dc), which turned the failed load into a panic.
+
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_osdep.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_osdep.c
+@@ -15289,7 +15289,7 @@
+ #ifdef RTL8192CD_VARIABLE_USED_DMEM
+ 	pmib = (struct wifi_mib *)rtl8192cd_dmem_alloc(PMIB, NULL);
+ #else
+-	pmib = (struct wifi_mib *)kmalloc((sizeof(struct wifi_mib)), GFP_ATOMIC);
++	pmib = (struct wifi_mib *)kmalloc((sizeof(struct wifi_mib)), GFP_KERNEL);
+ #endif
+ 	if (!pmib) {
+ 		rc = -ENOMEM;
+@@ -15300,7 +15300,7 @@
+ 	if (vap_idx < 0)
+ 		rtl8197f_wlan_phase_set(120, "mib-allocated", 0);
+ 
+-	pevent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_ATOMIC);
++	pevent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_KERNEL);
+ 	if (!pevent_queue) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for DOT11_QUEUE (size %d)\n", sizeof(DOT11_QUEUE));
+@@ -15308,7 +15308,7 @@
+ 	}
+ 	memset((void *)pevent_queue, 0, sizeof(DOT11_QUEUE));
+ #ifdef RSSI_MONITOR_NCR
+-	rssim_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_ATOMIC);
++	rssim_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_KERNEL);
+ 	if (!rssim_queue) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for DOT11_QUEUE (size %d)\n", sizeof(DOT11_QUEUE));
+@@ -15317,7 +15317,7 @@
+ 	memset((void *)rssim_queue, 0, sizeof(DOT11_QUEUE));
+ #endif
+ #ifdef CONFIG_RTL_WAPI_SUPPORT
+-	wapiEvent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_ATOMIC);
++	wapiEvent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_KERNEL);
+ 	if (!wapiEvent_queue) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for DOT11_QUEUE (size %d)\n", sizeof(DOT11_QUEUE));
+@@ -15325,7 +15325,7 @@
+ 	}
+ 	memset((void *)wapiEvent_queue, 0, sizeof(DOT11_QUEUE));
+ 	#if 0 //def MBSSID
+-	wapiVapEvent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)*RTL8192CD_NUM_VWLAN), GFP_ATOMIC);
++	wapiVapEvent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)*RTL8192CD_NUM_VWLAN), GFP_KERNEL);
+ 	if (!wapiVapEvent_queue) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for DOT11_QUEUE (size %d)\n", sizeof(DOT11_QUEUE)*RTL8192CD_NUM_VWLAN);
+@@ -15335,7 +15335,7 @@
+ 	#endif
+ #endif
+ #if	defined( CONFIG_IEEE80211R ) && !defined( RTK_NL80211 )
+-	pftevent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_ATOMIC);
++	pftevent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_KERNEL);
+ 	if (!pftevent_queue) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for DOT11_QUEUE (size %d)\n", sizeof(DOT11_QUEUE));
+@@ -15345,7 +15345,7 @@
+ #endif
+ 
+ #if defined(GENERAL_EVENT)
+-	pgeneralevent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_ATOMIC);
++	pgeneralevent_queue = (DOT11_QUEUE *)kmalloc((sizeof(DOT11_QUEUE)), GFP_KERNEL);
+ 	if (!pgeneralevent_queue) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for DOT11_QUEUE (size %d)\n", sizeof(DOT11_QUEUE));
+@@ -15377,7 +15377,7 @@
+ 			printk("****** %s %d, allocated addr %p\n", __FUNCTION__, __LINE__, &dma_virt);
+ 		}
+ #else
+-		phw = (struct rtl8192cd_hw *)kmalloc((sizeof(struct rtl8192cd_hw)), GFP_ATOMIC);
++		phw = (struct rtl8192cd_hw *)kmalloc((sizeof(struct rtl8192cd_hw)), GFP_KERNEL);
+ 		if (!phw) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for rtl8192cd_hw (size %d)\n", sizeof(struct rtl8192cd_hw));
+@@ -15399,7 +15399,7 @@
+ 		pshare = &shared_info;
+ #endif
+ #else
+-		pshare = (struct priv_shared_info *)kmalloc(sizeof(struct priv_shared_info), GFP_ATOMIC);
++		pshare = (struct priv_shared_info *)kmalloc(sizeof(struct priv_shared_info), GFP_KERNEL);
+ 		if (!pshare) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for priv_shared_info (size %d)\n", sizeof(struct priv_shared_info));
+@@ -15416,7 +15416,7 @@
+ #endif
+ #else
+ 		pwlan_hdr_poll = (struct wlan_hdr_poll *)
+-						kmalloc((sizeof(struct wlan_hdr_poll)), GFP_ATOMIC);
++						kmalloc((sizeof(struct wlan_hdr_poll)), GFP_KERNEL);
+ 		if (!pwlan_hdr_poll) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for wlan_hdr_poll (size %d)\n", sizeof(struct wlan_hdr_poll));
+@@ -15432,7 +15432,7 @@
+ #endif
+ #else
+ 		pwlanllc_hdr_poll = (struct wlanllc_hdr_poll *)
+-						kmalloc((sizeof(struct wlanllc_hdr_poll)), GFP_ATOMIC);
++						kmalloc((sizeof(struct wlanllc_hdr_poll)), GFP_KERNEL);
+ 		if (!pwlanllc_hdr_poll) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for wlanllc_hdr_poll (size %d)\n", sizeof(struct wlanllc_hdr_poll));
+@@ -15448,7 +15448,7 @@
+ #endif
+ #else
+ 		pwlanbuf_poll = (struct	wlanbuf_poll *)
+-						kmalloc((sizeof(struct	wlanbuf_poll)), GFP_ATOMIC);
++						kmalloc((sizeof(struct	wlanbuf_poll)), GFP_KERNEL);
+ 		if (!pwlanbuf_poll) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for wlanbuf_poll (size %d)\n", sizeof(struct wlanbuf_poll));
+@@ -15464,7 +15464,7 @@
+ #endif
+ #else
+ 		pwlanicv_poll = (struct	wlanicv_poll *)
+-						kmalloc((sizeof(struct	wlanicv_poll)), GFP_ATOMIC);
++						kmalloc((sizeof(struct	wlanicv_poll)), GFP_KERNEL);
+ 		if (!pwlanicv_poll) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for wlanicv_poll (size %d)\n", sizeof(struct wlanicv_poll));
+@@ -15481,7 +15481,7 @@
+ #endif
+ #else
+ 		pwlanmic_poll = (struct	wlanmic_poll *)
+-						kmalloc((sizeof(struct	wlanmic_poll)), GFP_ATOMIC);
++						kmalloc((sizeof(struct	wlanmic_poll)), GFP_KERNEL);
+ 		if (!pwlanmic_poll) {
+ 			rc = -ENOMEM;
+ 			printk(KERN_ERR "Can't kmalloc for wlanmic_poll (size %d)\n", sizeof(struct wlanmic_poll));
+@@ -15490,7 +15490,7 @@
+ #endif
+ 	}
+ #ifdef P2P_SUPPORT
+-    p2p_context_ptr = (struct p2p_context*)kmalloc(sizeof(struct p2p_context),GFP_ATOMIC); 
++    p2p_context_ptr = (struct p2p_context*)kmalloc(sizeof(struct p2p_context),GFP_KERNEL); 
+     if(p2p_context_ptr == NULL){
+         rc = -ENOMEM;
+         panic_printk(KERN_ERR "Can't kmalloc for p2p_context (size %d)\n", sizeof(struct p2p_context));
+@@ -15501,7 +15501,7 @@
+ #endif
+ 
+ 	pwlan_acl_poll = (struct wlan_acl_poll *)
+-					kmalloc((sizeof(struct wlan_acl_poll)), GFP_ATOMIC);
++					kmalloc((sizeof(struct wlan_acl_poll)), GFP_KERNEL);
+ 	if (!pwlan_acl_poll) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for wlan_acl_poll (size %d)\n", sizeof(struct wlan_acl_poll));
+@@ -15510,7 +15510,7 @@
+ 
+ #if defined(CONFIG_RTK_MESH) && defined(_MESH_ACL_ENABLE_)	/* below code copy above ACL code*/
+ 	pmesh_acl_poll = (struct mesh_acl_poll *)
+-					kmalloc((sizeof(struct mesh_acl_poll)), GFP_ATOMIC);
++					kmalloc((sizeof(struct mesh_acl_poll)), GFP_KERNEL);
+ 	if (!pmesh_acl_poll) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for Mesh wlan_acl_poll (size %d)\n", sizeof(struct mesh_acl_poll));
+@@ -15519,7 +15519,7 @@
+ #endif
+ 
+ 	Eap_packet = (DOT11_EAP_PACKET *)
+-					kmalloc((sizeof(DOT11_EAP_PACKET)), GFP_ATOMIC);
++					kmalloc((sizeof(DOT11_EAP_PACKET)), GFP_KERNEL);
+ 	if (!Eap_packet) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for Eap_packet (size %d)\n", sizeof(DOT11_EAP_PACKET));
+@@ -15529,7 +15529,7 @@
+ 
+ #if defined(INCLUDE_WPA_PSK) || defined(WIFI_HAPD) || defined(RTK_NL80211)
+ 	wpa_global_info = (WPA_GLOBAL_INFO *)
+-					kmalloc((sizeof(WPA_GLOBAL_INFO)), GFP_ATOMIC);
++					kmalloc((sizeof(WPA_GLOBAL_INFO)), GFP_KERNEL);
+ 	if (!wpa_global_info) {
+ 		rc = -ENOMEM;
+ 		printk(KERN_ERR "Can't kmalloc for wpa_global_info (size %d)\n", sizeof(WPA_GLOBAL_INFO));
+@@ -17798,7 +17798,7 @@
+         priv->rreq_head = NULL;
+         priv->rreq_tail = NULL;
+ 
+-        pann_mpp_tb = (struct mpp_tb*)kmalloc(sizeof(struct mpp_tb), GFP_ATOMIC);
++        pann_mpp_tb = (struct mpp_tb*)kmalloc(sizeof(struct mpp_tb), GFP_KERNEL);
+         if(!pann_mpp_tb)
+         {
+             rc = -ENOMEM;
+@@ -17806,7 +17806,7 @@
+             goto err_out_dev;
+         }
+         init_mpp_pool(pann_mpp_tb);
+-        proxy_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_ATOMIC);
++        proxy_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_KERNEL);
+         if(!proxy_table)
+         {
+             rc = -ENOMEM;
+@@ -17817,7 +17817,7 @@
+ 
+ #ifdef PU_STANDARD
+         //pepsi
+-        proxyupdate_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_ATOMIC);
++        proxyupdate_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_KERNEL);
+         if(!proxyupdate_table)
+         {
+             rc = -ENOMEM;
+@@ -17827,7 +17827,7 @@
+         memset((void*)proxyupdate_table, 0, sizeof(struct hash_table));
+ #endif
+ 
+-        pathsel_queue = (DOT11_QUEUE2 *)kmalloc((sizeof(DOT11_QUEUE2)), GFP_ATOMIC);
++        pathsel_queue = (DOT11_QUEUE2 *)kmalloc((sizeof(DOT11_QUEUE2)), GFP_KERNEL);
+         if (!pathsel_queue) {
+             rc = -ENOMEM;
+             printk(KERN_ERR "Can't kmalloc for PATHSELECTION_QUEUE (size %d)\n", sizeof(DOT11_QUEUE));
+@@ -17835,7 +17835,7 @@
+         }
+         memset((void *)pathsel_queue, 0, sizeof (DOT11_QUEUE2));
+ 
+-        pathsel_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_ATOMIC);
++        pathsel_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_KERNEL);
+         if(!pathsel_table)
+         {
+             rc = -ENOMEM;
+@@ -17844,7 +17844,7 @@
+         }
+         memset((void*)pathsel_table, 0, sizeof(struct hash_table));
+ 
+-        mesh_rreq_retry_queue = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_ATOMIC);
++        mesh_rreq_retry_queue = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_KERNEL);
+         if(!mesh_rreq_retry_queue)
+         {
+             rc = -ENOMEM;
+@@ -18043,7 +18043,7 @@
+ #ifdef AUTH_SAE
+ 		/*sae_peer_table sae_blacklist_table share to all interfaces*/
+ 		panic_printk("[%s] init sae_peer_table \n ",priv->dev->name);
+-		sae_peer_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_ATOMIC);
++		sae_peer_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_KERNEL);
+ 		if(!sae_peer_table)
+ 		{
+ 			rc = -ENOMEM;
+@@ -18053,7 +18053,7 @@
+ 		memset((void*)sae_peer_table, 0, sizeof(struct hash_table));
+ 
+ 		panic_printk("[%s] init sae_blacklist_table \n ",priv->dev->name);
+-		sae_blacklist_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_ATOMIC);
++		sae_blacklist_table = (struct hash_table*)kmalloc(sizeof(struct hash_table), GFP_KERNEL);
+ 		if(!sae_blacklist_table)
+ 		{
+ 			rc = -ENOMEM;
+@@ -18420,7 +18420,7 @@
+ 
+ #ifdef WLAN_RSV_BUF
+ 	if(IS_ROOT_INTERFACE(priv)){
+-		priv->pshare->rsv_buf = kmalloc(MAX_RSV_BUF_SIZE, GFP_ATOMIC);
++		priv->pshare->rsv_buf = kmalloc(MAX_RSV_BUF_SIZE, GFP_KERNEL);
+ 		if (NULL == priv->pshare->rsv_buf) {
+ 			printk("(%s %d)allocate resv_temp_buf error!!\n",__FUNCTION__, __LINE__);
+ 			goto err_out_free;
+@@ -18668,7 +18668,7 @@
+ 	}
+ #endif
+ #ifdef WLAN_RSV_BUF
+-		if(pshare->rsv_buf) {
++		if (pshare && pshare->rsv_buf) {
+ 			kfree(pshare->rsv_buf);
+ 			pshare->rsv_buf = NULL;
+ 		}

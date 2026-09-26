@@ -7,13 +7,13 @@
 START=15
 
 start() {
-	[ -w /proc/rtl819x_trunk ] || return 0
+	[ -w /proc/ac8_trunk ] || return 0
 	if [ -f /etc/ac8-trunk.conf ]; then
-		while read -r line; do
-			case "$line" in
-			soc\ *|sw\ *)
-				echo "$line" > /proc/rtl819x_trunk ||
-					logger -t ac8-trunk "rejected: $line"
+		while read -r what a b c; do
+			case "$what" in
+			soc|sw)
+				/usr/sbin/ac8-trunk "$what" $a $b $c >/dev/null 2>&1 ||
+					logger -t ac8-trunk "rejected: $what $a $b $c"
 				;;
 			esac
 		done < /etc/ac8-trunk.conf
