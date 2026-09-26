@@ -17,18 +17,49 @@ START=99
 
 GUARD=/etc/rtl8197f-wlan.loading
 FAILED=/etc/rtl8197f-wlan.failed
+STAMP=/etc/rtl8197f-wlan.build
 LOG=/tmp/rtl8197f-wlan-load.log
 MODES="dual pcie"
 
+# The kernel's console log level is 1 after boot: print the outcome on the
+# serial console directly, and to the system log.
+con() {
+	echo "rtl8197f-wlan: $*" > /dev/console 2>/dev/null
+	logger -t rtl8197f-wlan "$*"
+}
+
+report() {
+	local l
+	for l in $(sed -n 's/^\(init_phase\|last_phase\|init_rc\)=/&/p' "$LOG" 2>/dev/null); do
+		con "driver: $l"
+	done
+	iw dev 2>/dev/null | grep -E '^phy|Interface|ssid|channel|type' |
+		while read -r l; do con "iw: $l"; done
+	ubus call network.wireless status 2>/dev/null |
+		grep -E '"(radio[0-9]*|up|pending|autostart|disabled|retry_setup_failed)"|"errors"|^[[:space:]]*"[A-Z_]+",?$' |
+		tr -d '\t,' | while read -r l; do con "status: $l"; done
+	logread -e hostapd 2>/dev/null | tail -n 6 | while read -r l; do con "log: ${l#* * * * * }"; done
+	dmesg | grep -iE 'rtl8192cd|8812f|8197f-w|phydm|halmac|wlan[01]' | tail -n 10 |
+		while read -r l; do con "dmesg: $l"; done
+}
+
 start() {
 	grep -q '^rtl8192cd ' /proc/modules && return 0
+
+	# Failures recorded by another firmware build do not count.
+	build=$(md5sum /proc/version 2>/dev/null | cut -c1-8)
+	if [ -e "$FAILED" ] && [ "$(cat "$STAMP" 2>/dev/null)" != "$build" ]; then
+		rm -f "$FAILED" "$GUARD"
+		con "new firmware: forgetting the failed load modes of the previous one"
+	fi
+	echo "$build" > "$STAMP"
 
 	if [ -e "$GUARD" ]; then
 		# The builds up to ac8-20260925-15 left an empty guard.
 		last=$(cat "$GUARD" 2>/dev/null)
 		echo "${last:-dual}" >> "$FAILED"
 		rm -f "$GUARD"
-		logger -t rtl8197f-wlan "the driver load in mode ${last:-dual} did not finish, not trying that mode again"
+		con "the driver load in mode ${last:-dual} did not finish last boot, not trying that mode again"
 	fi
 
 	mode=
@@ -38,9 +69,10 @@ start() {
 		break
 	done
 	if [ -z "$mode" ]; then
-		logger -t rtl8197f-wlan "no driver load mode left, Wi-Fi stays off; remove $FAILED to retry"
+		con "no driver load mode left ($(tr '\n' ' ' < "$FAILED")), Wi-Fi stays off; to retry: rm $FAILED; /etc/init.d/rtl8197f-wlan start"
 		return 1
 	fi
+	con "loading the driver, mode $mode"
 
 	(
 		echo "$mode" > "$GUARD"
@@ -54,10 +86,11 @@ start() {
 			sync
 			rc=1
 		fi
-		logger -t rtl8197f-wlan "driver load ($mode) finished with rc=$rc, log in $LOG"
+		con "driver load ($mode) finished with rc=$rc, full log in $LOG"
 		if [ "$rc" != 0 ]; then
 			rm -f "$GUARD"
 			sync
+			report
 			exit 0
 		fi
 
@@ -72,9 +105,10 @@ start() {
 		sleep 30
 		if dmesg | grep -qE 'Oops|Unable to handle kernel|BUG: '; then
 			echo "$mode" >> "$FAILED"
-			logger -t rtl8197f-wlan "kernel oops while the radios came up, mode $mode will not be used again"
+			con "kernel oops while the radios came up, mode $mode will not be used again"
 		fi
 		rm -f "$GUARD"
 		sync
+		report
 	) </dev/null >/dev/null 2>&1 &
 }

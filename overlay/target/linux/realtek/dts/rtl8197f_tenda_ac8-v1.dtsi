@@ -107,24 +107,26 @@
 	};
 
 	/*
-	 * RTL8367RB-VB (chip id 0x6367, ver 0x0020 -- the same id as the
-	 * RTL8367S of the D-Link DIR-842 R1), swconfig rtl8367b driver of the
-	 * DIR-842 port.  The boot loader brings the RGMII uplink (EXT1 = port 6
-	 * <-> SoC P0) up on every boot; the driver keeps it and does not reset
-	 * the chip (a reset plus a partial re-init desynchronised the RGMII
-	 * pair on the DIR-842: link up, no frames).  Jacks: ports 0-3 LAN,
-	 * port 4 WAN.  realtek,rtl8197f-ac8-oem-init: the stock
-	 * rtk_switch_init() tail (port LED pins, LED mode, thresholds, SSC).
+	 * RTL8367RB-VB (chip id 0x6367, ver 0x0020), swconfig rtl8367b driver
+	 * of OpenWrt 24.10 (as on the TP-Link Archer C2 v1), which resets the
+	 * chip and runs the RTL8367C init like the stock rtk_switch_init().
+	 * realtek,extif: CPU port 6 = EXT1, RGMII delays tx 0 / rx 5 (the
+	 * values the stock switch init ends with), RGMII, forced 1000/full,
+	 * pause off (rtl819x also turns it off on the SoC side).
+	 * realtek,rtl8197f-ac8-oem-init: the rest of the stock init (port LED
+	 * pins and mode, thresholds, SSC).  realtek,cpu-tag-insert-all: the
+	 * CPU tag in every frame to the SoC, which rtl819x decodes.
+	 * Jacks: ports 0-3 LAN, port 4 WAN.
 	 */
 	rtl8367b {
 		compatible = "realtek,rtl8367b";
 		pinctrl-names = "default";
 		pinctrl-0 = <&rtl8367_smi_h0_g7_pins>;
-		cpu_port = <6>;
-		realtek,extif1 = <1 0 1 1 1 1 1 1 2>;
+		realtek,extif = <6 0 5 1 1 0 0 1 1 2>;
 		gpio-sck = <&gpio0 56 GPIO_ACTIVE_HIGH>;	/* H0, MDC */
 		gpio-sda = <&gpio0 55 GPIO_ACTIVE_HIGH>;	/* G7, MDIO */
 		realtek,rtl8197f-ac8-oem-init;
+		realtek,cpu-tag-insert-all;
 	};
 };
 
@@ -192,10 +194,10 @@
  * (VID 1) to Linux as eth0.2 / eth0.1.  The loader gates the switch-core
  * clock before it jumps to the kernel, so its P0 setup is lost and the driver
  * programs the trunk itself: the values of stock init_8197f_p0 (CPU tag,
- * CF_SEL_RGTXC 3, TX delay 0, RX delay 7) against the switch EXT1 side the
- * loader left (tx 0, rx 2).  The pad drive is the value the stock firmware
- * writes, (v & 0x01bfffff) | 0xd8000000.  Stock also resets the switch core
- * and initialises its table SRAM at every Ethernet init.
+ * CF_SEL_RGTXC 3, TX delay 0, RX delay 7) against the switch EXT1 side of
+ * the stock switch init (tx 0, rx 5).  The pad drive is the value the stock
+ * firmware writes, (v & 0x01bfffff) | 0xd8000000.  Stock also resets the
+ * switch core and initialises its table SRAM at every Ethernet init.
  */
 &ethernet0 {
 	compatible = "realtek,rtl8197f-eth";

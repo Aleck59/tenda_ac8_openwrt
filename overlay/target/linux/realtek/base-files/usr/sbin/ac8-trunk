@@ -23,14 +23,19 @@ PROC=/proc/rtl819x_trunk
 CONF=/etc/ac8-trunk.conf
 LOG=/tmp/ac8-trunk.log
 
-# Most likely values first (stock AC8: SoC TX 0 + RGTXC 3, RX 7; switch tx 0 rx 2).
-SOC_TX_ORDER="0:3 1:0 1:3 0:0 0:1 0:2 1:1 1:2"
-SW_RX_ORDER="2 3 1 4 0 5 6 7"
+# Most likely values first (stock AC8: SoC TX 0 + RGTXC 3, RX 7; switch tx 0
+# rx 5; the rtknet/DSA builds worked with SoC TX 1 against switch rx 3).
+SOC_TX_ORDER="0:3 1:3 1:0 0:0 0:1 0:2 1:1 1:2"
+SW_RX_ORDER="5 4 6 3 7 2 1 0"
 SOC_RX_ORDER="7 6 5 4 3 2 1 0"
 SW_TX_ORDER="0 1"
 
+CONSOLE=0
+
 say() {
 	echo "$*" | tee -a "$LOG"
+	[ "$CONSOLE" = 1 ] && echo "ac8-trunk: $*" > /dev/console 2>/dev/null
+	return 0
 }
 
 die() {
@@ -47,6 +52,8 @@ Usage: ac8-trunk [command]
   sweep              search working delays (TX first, then RX; ~3 minutes)
   soc TX RX [RGTXC]  set the SoC delays (TX 0-1, RX 0-7, RGTXC 0-3)
   sw TX RX           set the switch EXT1 delays (TX 0-1, RX 0-7)
+  boot               boot check: test, search the TX delays if TX fails
+                     (no PC needed), print the result on the serial console
   save               keep the current values across reboots
   reset              forget the saved values (firmware defaults after reboot)
 
@@ -114,6 +121,7 @@ do_test() {
 	say "== $(date) ac8-trunk test"
 	say "$(cat "$PROC")"
 	set -- $(txtest $n)
+	say "$(last)"
 	if [ "${1:-0}" -ge $n ] && [ "${2:--1}" -eq 0 ]; then
 		say "TX router -> switch: ok ($1 of $n frames, no errors)"
 	else
@@ -197,6 +205,57 @@ do_sweep() {
 	say "Run \"ac8-trunk test\", then \"ac8-trunk save\" to keep it.  Log: $LOG"
 }
 
+# TX search only: needs no PC.  Keeps the SoC RX and switch TX values.
+tx_search() {
+	local soc_rx sw_tx pair tx rgtxc rx s="" best="" w
+	set -- $(cur_soc); soc_rx=$2
+	set -- $(cur_sw); sw_tx=$1
+	for pair in $SOC_TX_ORDER; do
+		tx=${pair%:*}; rgtxc=${pair#*:}
+		wr "soc $tx $soc_rx $rgtxc" || return 1
+		w=""
+		for rx in $SW_RX_ORDER; do
+			wr "sw $sw_tx $rx" || return 1
+			sleep 1
+			tx_ok 50 && w="$w,$rx"
+		done
+		[ -n "$w" ] && s="$s ${#w}:$tx:$rgtxc:${w#,}"
+	done
+	[ -n "$s" ] || return 1
+	# widest window of switch RX values; its middle value
+	best=$(echo $s | tr ' ' '\n' | awk -F: '$1 > m { m = $1; b = $0 } END { print b }')
+	tx=$(echo "$best" | cut -d: -f2); rgtxc=$(echo "$best" | cut -d: -f3)
+	w=$(echo "$best" | cut -d: -f4 | tr ',' '\n' | sort -n)
+	rx=$(echo "$w" | sed -n "$(( ($(echo "$w" | wc -l) + 1) / 2 ))p")
+	wr "soc $tx $soc_rx $rgtxc"; wr "sw $sw_tx $rx"
+	say "TX search: working SoC TX:RGTXC:switch RX windows:$s"
+	say "TX search: using soc $tx $soc_rx $rgtxc / sw $sw_tx $rx"
+	return 0
+}
+
+do_boot() {
+	local n=200 v
+	CONSOLE=1
+	grep -q '^eth0: up' "$PROC" || { say "eth0 is down, no check"; return 1; }
+	say "$(grep -E '^(soc|sw):' "$PROC" | tr '\n' ' ')"
+	set -- $(txtest $n)
+	say "$(last)"
+	if [ "${1:-0}" -ge $n ] && [ "${2:--1}" -eq 0 ]; then
+		say "TX router -> switch: ok ($1 of $n test frames)"
+	else
+		say "TX router -> switch: FAIL (sent $n, switch got ${1:-?} good, ${2:-?} errored); searching delays"
+		if tx_search; then
+			set -- $(txtest $n)
+			say "TX after search: $(last)"
+		else
+			say "TX search: no SoC/switch delay pair passes"
+		fi
+	fi
+	v=$(rx_verdict 10)
+	say "RX switch -> router (10 s): $v"
+	say "details: ac8-trunk; ac8-trunk test; ac8-trunk sweep (with a PC pinging 192.168.1.1)"
+}
+
 [ -w "$PROC" ] || die "$PROC not found (rtl819x Ethernet driver not loaded)"
 
 case "${1:-}" in
@@ -205,6 +264,7 @@ case "${1:-}" in
 	[ -f "$CONF" ] && echo "saved ($CONF): $(tr '\n' ' ' < "$CONF")"
 	;;
 test)	do_test ;;
+boot)	do_boot ;;
 sweep)	do_sweep ;;
 soc)
 	shift

@@ -172,28 +172,42 @@ LAN, порт 4 — WAN. Сохраните весь лог: по нему пр�
 
 ### Ethernet
 
-С `ac8-20260926-19` Ethernet работает на драйверах из порта OpenWrt для
-D-Link DIR-842 R1: у него тот же SoC и коммутатор с тем же ID, что у AC8, и
-гигабит там проверен. `rtl819x` ведёт CPU-порт SoC: CPU-тег коммутатора
-вставляет и снимает сам SoC, LAN приходит как `eth0.2`, WAN — как
-`eth0.1`. Коммутатор настраивает swconfig-драйвер `rtl8367b`: он не
-сбрасывает чип и оставляет RGMII-канал, который поднял загрузчик
-(сброс с частичной переинициализацией и давал «линк есть, данных нет»).
+С `ac8-20260926-19` CPU-порт SoC ведёт драйвер `rtl819x` из порта OpenWrt
+для D-Link DIR-842 R1 (тот же SoC, коммутатор с тем же ID): CPU-тег
+коммутатора вставляет и снимает сам SoC, LAN приходит как `eth0.2`, WAN —
+как `eth0.1`. С `ac8-20260926-21` коммутатор ведёт swconfig-драйвер
+`rtl8367b` из OpenWrt 24.10 — тот же, что у TP-Link Archer C2 v1. Как и
+стоковая прошивка, он сбрасывает чип, выполняет инициализацию RTL8367C и
+настраивает порт EXT1 (RGMII 1000/full, задержки tx 0 / rx 5), затем
+выполняется остаток стоковой инициализации (светодиоды, пороги, SSC,
+CPU-тег).
 
-Сторону SoC драйвер настраивает сам: загрузчик гасит тактирование switch
-core перед запуском ядра, и его настройка порта P0 теряется. С
-`ac8-20260926-20` задержки RGMII по умолчанию как в стоке AC8: SoC — TX 0,
-RX 7, `CF_SEL_RGTXC` 3; коммутатор — TX 0, RX 2 (их ставит загрузчик).
+Сторону SoC `rtl819x` настраивает сам: загрузчик гасит тактирование switch
+core перед запуском ядра, и его настройка порта P0 теряется. Задержки SoC
+как в стоке AC8: TX 0, RX 7, `CF_SEL_RGTXC` 3.
 
 В логе загрузки должно быть:
 
 ```
-RTL8367S: loader-configured uplink (0x1219=0040) — preserving power-on RGMII trunk
-applied Tenda AC8 OEM LED/threshold/SSC sequence
+rtl8367b rtl8367b: RTL8367RB-VB chip found (num:6367 ver:0020)
+rtl8367b rtl8367b: cpu_port:6, assigned to extif1
+rtl8367b rtl8367b: AC8: EXT1 RGMII tx delay 0, rx delay 5 (0x1307=....), stock LED/threshold/SSC init, CPU tag to all
 rtl819x-eth ...: P0GMIICR=00037d00 at probe (not configured): RGMII TX delay 0, RX delay 7, RGTXC 3; pads written
 rtl819x-eth ...: switch core reset (FULL_RST + clock cycle + table SRAM init)
 rtl819x trunk-post: ...
 ```
+
+Через ~15 с после подъёма LAN в консоли UART появится самопроверка канала
+SoC ↔ коммутатор:
+
+```
+ac8-trunk: TX router -> switch: ok (200 of 200 test frames)
+ac8-trunk: RX switch -> router (10 s): ok (switch sent N, router received N)
+```
+
+Если передача не проходит, `ac8-trunk` сам перебирает задержки (ПК не
+нужен) и печатает, какие сработали. Для проверки приёма к LAN должен быть
+подключён ПК — он сам шлёт широковещательные кадры (DHCP, ARP).
 
 #### Подбор задержек RGMII: `ac8-trunk`
 
@@ -219,7 +233,9 @@ rtl819x trunk-post: ...
 `/proc/rtl819x_trunk`. Пришлите вывод `ac8-trunk sweep` и
 `/tmp/ac8-trunk.log`: рабочие значения войдут в прошивку по умолчанию.
 
-Если Ethernet не работает, пришлите `dmesg` целиком и вывод:
+Если Ethernet не работает, пришлите лог UART от включения до ~2 минут
+после загрузки (в нём строки `ac8-trunk: …` и `rtl8197f-wlan: …`),
+`dmesg` целиком и вывод:
 
 ```sh
 ac8-trunk
@@ -237,7 +253,11 @@ Wi-Fi-драйвер `rtl8192cd` вендорский и эксперимент�
 
 Драйвер загружается сам в конце загрузки системы
 (`/etc/init.d/rtl8197f-wlan`): встроенное радио 2,4 ГГц (`wlan0`) и
-RTL8812F 5 ГГц на PCIe (`wlan1`). Проверьте:
+RTL8812F 5 ГГц на PCIe (`wlan1`). С `ac8-20260926-21` скрипт печатает в
+консоль UART строки `rtl8197f-wlan: …`: режим загрузки, результат, этапы
+инициализации драйвера, интерфейсы из `iw dev`, состояние радио
+(`up`/`pending`, ошибки) и последние сообщения hostapd — примерно через
+минуту после загрузки. Пришлите их, если Wi-Fi не заработал. Вручную:
 
 ```sh
 cat /tmp/rtl8197f-wlan-load.log   # вывод загрузки драйвера

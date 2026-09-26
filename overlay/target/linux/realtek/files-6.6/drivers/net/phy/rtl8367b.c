@@ -1,5 +1,13 @@
 /*
- * Platform driver for the Realtek RTL8367R-VB ethernet switches
+ * Platform driver for Realtek RTL8367B family chips, i.e. RTL8367RB and RTL8367R-VB
+ * extended with support for RTL8367C family chips, i.e. RTL8367RB-VB and RTL8367S
+ * extended with support for RTL8367D family chips, i.e. RTL8367S-VB
+ *
+ * Tenda AC8 v1 (RTL8197F + RTL8367RB-VB on EXT1): the OpenWrt 24.10 driver
+ * (the one of the TP-Link Archer C2 v1 and the other RTL8367 boards) plus
+ * what the AC8 stock switch init adds after rtk_switch_init(), the CPU tag
+ * of the rtl819x CPU-port driver and the run-time trunk helpers it uses
+ * (/proc/rtl819x_trunk).
  *
  * Copyright (C) 2012 Gabor Juhos <juhosg@openwrt.org>
  *
@@ -15,7 +23,6 @@
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/delay.h>
-#include <linux/gpio.h>
 #include <linux/skbuff.h>
 #include <linux/rtl8367.h>
 
@@ -96,14 +103,6 @@
 #define RTL8367B_VLAN_INGRESS_REG		0x07a9 /*GOOD*/
 
 #define RTL8367B_PORT_ISOLATION_REG(_p)		(0x08a2 + (_p)) /*GOOD*/
-
-/*
- * Per-port LED force-mode. Three LED groups, one register each, 2 bits per
- * port: 0 = hardware indication (link/activity), 1 = force blink,
- * 2 = force off, 3 = force on. All four values verified on DIR-842 hardware.
- */
-#define RTL8367B_LED_FORCE_MODE_REG(_g)		(0x1b08 + ((_g) << 1))
-#define RTL8367B_NUM_LED_GROUPS			3
 
 #define RTL8367B_MIB_COUNTER_REG(_x)		(0x1000 + (_x))	/*GOOD*/
 #define RTL8367B_MIB_COUNTER_PORT_OFFSET	0x007c /*GOOD*/
@@ -275,6 +274,37 @@ struct rtl8367b_initval {
 #define RTL8367B_MIB_RXB_ID		0	/* IfInOctets */
 #define RTL8367B_MIB_TXB_ID		28	/* IfOutOctets */
 
+#define RTL8367D_PORT_STATUS_REG(_p)		(0x12d0 + (_p))
+
+#define RTL8367D_PORT_STATUS_SPEED1_MASK	0x3000
+#define RTL8367D_PORT_STATUS_SPEED1_SHIFT	10 /*12-2*/
+
+#define RTL8367D_REG_MAC0_FORCE_SELECT		0x12c0
+#define RTL8367D_REG_MAC0_FORCE_SELECT_EN	0x12c8
+
+#define RTL8367D_VLAN_PVID_CTRL_REG(_p)		(0x0700 + (_p))
+#define RTL8367D_VLAN_PVID_CTRL_MASK		0xfff
+#define RTL8367D_VLAN_PVID_CTRL_SHIFT(_p)	0
+
+#define RTL8367D_FIDMAX			3
+#define RTL8367D_FID_MASK		3
+#define RTL8367D_TA_VLAN1_FID_SHIFT	0
+#define RTL8367D_TA_VLAN1_FID_MASK	RTL8367D_FID_MASK
+
+#define RTL8367D_VID_MASK		0xfff
+#define RTL8367D_TA_VLAN_VID_MASK	RTL8367D_VID_MASK
+
+#define RTL8367D_REG_EXT_TXC_DLY		0x13f9
+#define RTL8367D_EXT1_RGMII_TX_DLY_MASK		0x38
+
+#define RTL8367D_REG_TOP_CON0			0x1d70
+#define   RTL8367D_MAC7_SEL_EXT1_MASK		0x2000
+#define   RTL8367D_MAC4_SEL_EXT1_MASK		0x1000
+
+#define RTL8367D_REG_SDS1_MISC0			0x1d78
+#define   RTL8367D_SDS1_MODE_MASK		0x1f
+#define   RTL8367D_PORT_SDS_MODE_DISABLE		0x1f
+
 static struct rtl8366_mib_counter
 rtl8367b_mib_counters[RTL8367B_NUM_MIB_COUNTERS] = {
 	{0,   0, 4, "ifInOctets"			},
@@ -360,220 +390,7 @@ rtl8367b_mib_counters[RTL8367B_NUM_MIB_COUNTERS] = {
 			return err;					\
 	} while (0)
 
-static const struct rtl8367b_initval rtl8367r_vb_initvals_0[] = {
-	{0x1B03, 0x0876}, {0x1200, 0x7FC4}, {0x0301, 0x0026}, {0x1722, 0x0E14},
-	{0x205F, 0x0002}, {0x2059, 0x1A00}, {0x205F, 0x0000}, {0x207F, 0x0002},
-	{0x2077, 0x0000}, {0x2078, 0x0000}, {0x2079, 0x0000}, {0x207A, 0x0000},
-	{0x207B, 0x0000}, {0x207F, 0x0000}, {0x205F, 0x0002}, {0x2053, 0x0000},
-	{0x2054, 0x0000}, {0x2055, 0x0000}, {0x2056, 0x0000}, {0x2057, 0x0000},
-	{0x205F, 0x0000}, {0x12A4, 0x110A}, {0x12A6, 0x150A}, {0x13F1, 0x0013},
-	{0x13F4, 0x0010}, {0x13F5, 0x0000}, {0x0018, 0x0F00}, {0x0038, 0x0F00},
-	{0x0058, 0x0F00}, {0x0078, 0x0F00}, {0x0098, 0x0F00}, {0x12B6, 0x0C02},
-	{0x12B7, 0x030F}, {0x12B8, 0x11FF}, {0x12BC, 0x0004}, {0x1362, 0x0115},
-	{0x1363, 0x0002}, {0x1363, 0x0000}, {0x133F, 0x0030}, {0x133E, 0x000E},
-	{0x221F, 0x0007}, {0x221E, 0x002D}, {0x2218, 0xF030}, {0x221F, 0x0007},
-	{0x221E, 0x0023}, {0x2216, 0x0005}, {0x2215, 0x00B9}, {0x2219, 0x0044},
-	{0x2215, 0x00BA}, {0x2219, 0x0020}, {0x2215, 0x00BB}, {0x2219, 0x00C1},
-	{0x2215, 0x0148}, {0x2219, 0x0096}, {0x2215, 0x016E}, {0x2219, 0x0026},
-	{0x2216, 0x0000}, {0x2216, 0x0000}, {0x221E, 0x002D}, {0x2218, 0xF010},
-	{0x221F, 0x0007}, {0x221E, 0x0020}, {0x2215, 0x0D00}, {0x221F, 0x0000},
-	{0x221F, 0x0000}, {0x2217, 0x2160}, {0x221F, 0x0001}, {0x2210, 0xF25E},
-	{0x221F, 0x0007}, {0x221E, 0x0042}, {0x2215, 0x0F00}, {0x2215, 0x0F00},
-	{0x2216, 0x7408}, {0x2215, 0x0E00}, {0x2215, 0x0F00}, {0x2215, 0x0F01},
-	{0x2216, 0x4000}, {0x2215, 0x0E01}, {0x2215, 0x0F01}, {0x2215, 0x0F02},
-	{0x2216, 0x9400}, {0x2215, 0x0E02}, {0x2215, 0x0F02}, {0x2215, 0x0F03},
-	{0x2216, 0x7408}, {0x2215, 0x0E03}, {0x2215, 0x0F03}, {0x2215, 0x0F04},
-	{0x2216, 0x4008}, {0x2215, 0x0E04}, {0x2215, 0x0F04}, {0x2215, 0x0F05},
-	{0x2216, 0x9400}, {0x2215, 0x0E05}, {0x2215, 0x0F05}, {0x2215, 0x0F06},
-	{0x2216, 0x0803}, {0x2215, 0x0E06}, {0x2215, 0x0F06}, {0x2215, 0x0D00},
-	{0x2215, 0x0100}, {0x221F, 0x0001}, {0x2210, 0xF05E}, {0x221F, 0x0000},
-	{0x2217, 0x2100}, {0x221F, 0x0000}, {0x220D, 0x0003}, {0x220E, 0x0015},
-	{0x220D, 0x4003}, {0x220E, 0x0006}, {0x221F, 0x0000}, {0x2200, 0x1340},
-	{0x133F, 0x0010}, {0x12A0, 0x0058}, {0x12A1, 0x0058}, {0x133E, 0x000E},
-	{0x133F, 0x0030}, {0x221F, 0x0000}, {0x2210, 0x0166}, {0x221F, 0x0000},
-	{0x133E, 0x000E}, {0x133F, 0x0010}, {0x133F, 0x0030}, {0x133E, 0x000E},
-	{0x221F, 0x0005}, {0x2205, 0xFFF6}, {0x2206, 0x0080}, {0x2205, 0x8B6E},
-	{0x2206, 0x0000}, {0x220F, 0x0100}, {0x2205, 0x8000}, {0x2206, 0x0280},
-	{0x2206, 0x28F7}, {0x2206, 0x00E0}, {0x2206, 0xFFF7}, {0x2206, 0xA080},
-	{0x2206, 0x02AE}, {0x2206, 0xF602}, {0x2206, 0x0153}, {0x2206, 0x0201},
-	{0x2206, 0x6602}, {0x2206, 0x80B9}, {0x2206, 0xE08B}, {0x2206, 0x8CE1},
-	{0x2206, 0x8B8D}, {0x2206, 0x1E01}, {0x2206, 0xE18B}, {0x2206, 0x8E1E},
-	{0x2206, 0x01A0}, {0x2206, 0x00E7}, {0x2206, 0xAEDB}, {0x2206, 0xEEE0},
-	{0x2206, 0x120E}, {0x2206, 0xEEE0}, {0x2206, 0x1300}, {0x2206, 0xEEE0},
-	{0x2206, 0x2001}, {0x2206, 0xEEE0}, {0x2206, 0x2166}, {0x2206, 0xEEE0},
-	{0x2206, 0xC463}, {0x2206, 0xEEE0}, {0x2206, 0xC5E8}, {0x2206, 0xEEE0},
-	{0x2206, 0xC699}, {0x2206, 0xEEE0}, {0x2206, 0xC7C2}, {0x2206, 0xEEE0},
-	{0x2206, 0xC801}, {0x2206, 0xEEE0}, {0x2206, 0xC913}, {0x2206, 0xEEE0},
-	{0x2206, 0xCA30}, {0x2206, 0xEEE0}, {0x2206, 0xCB3E}, {0x2206, 0xEEE0},
-	{0x2206, 0xDCE1}, {0x2206, 0xEEE0}, {0x2206, 0xDD00}, {0x2206, 0xEEE2},
-	{0x2206, 0x0001}, {0x2206, 0xEEE2}, {0x2206, 0x0100}, {0x2206, 0xEEE4},
-	{0x2206, 0x8860}, {0x2206, 0xEEE4}, {0x2206, 0x8902}, {0x2206, 0xEEE4},
-	{0x2206, 0x8C00}, {0x2206, 0xEEE4}, {0x2206, 0x8D30}, {0x2206, 0xEEEA},
-	{0x2206, 0x1480}, {0x2206, 0xEEEA}, {0x2206, 0x1503}, {0x2206, 0xEEEA},
-	{0x2206, 0xC600}, {0x2206, 0xEEEA}, {0x2206, 0xC706}, {0x2206, 0xEE85},
-	{0x2206, 0xEE00}, {0x2206, 0xEE85}, {0x2206, 0xEF00}, {0x2206, 0xEE8B},
-	{0x2206, 0x6750}, {0x2206, 0xEE8B}, {0x2206, 0x6632}, {0x2206, 0xEE8A},
-	{0x2206, 0xD448}, {0x2206, 0xEE8A}, {0x2206, 0xD548}, {0x2206, 0xEE8A},
-	{0x2206, 0xD649}, {0x2206, 0xEE8A}, {0x2206, 0xD7F8}, {0x2206, 0xEE8B},
-	{0x2206, 0x85E2}, {0x2206, 0xEE8B}, {0x2206, 0x8700}, {0x2206, 0xEEFF},
-	{0x2206, 0xF600}, {0x2206, 0xEEFF}, {0x2206, 0xF7FC}, {0x2206, 0x04F8},
-	{0x2206, 0xE08B}, {0x2206, 0x8EAD}, {0x2206, 0x2023}, {0x2206, 0xF620},
-	{0x2206, 0xE48B}, {0x2206, 0x8E02}, {0x2206, 0x2877}, {0x2206, 0x0225},
-	{0x2206, 0xC702}, {0x2206, 0x26A1}, {0x2206, 0x0281}, {0x2206, 0xB302},
-	{0x2206, 0x8496}, {0x2206, 0x0202}, {0x2206, 0xA102}, {0x2206, 0x27F1},
-	{0x2206, 0x0228}, {0x2206, 0xF902}, {0x2206, 0x2AA0}, {0x2206, 0x0282},
-	{0x2206, 0xB8E0}, {0x2206, 0x8B8E}, {0x2206, 0xAD21}, {0x2206, 0x08F6},
-	{0x2206, 0x21E4}, {0x2206, 0x8B8E}, {0x2206, 0x0202}, {0x2206, 0x80E0},
-	{0x2206, 0x8B8E}, {0x2206, 0xAD22}, {0x2206, 0x05F6}, {0x2206, 0x22E4},
-	{0x2206, 0x8B8E}, {0x2206, 0xE08B}, {0x2206, 0x8EAD}, {0x2206, 0x2305},
-	{0x2206, 0xF623}, {0x2206, 0xE48B}, {0x2206, 0x8EE0}, {0x2206, 0x8B8E},
-	{0x2206, 0xAD24}, {0x2206, 0x08F6}, {0x2206, 0x24E4}, {0x2206, 0x8B8E},
-	{0x2206, 0x0227}, {0x2206, 0x6AE0}, {0x2206, 0x8B8E}, {0x2206, 0xAD25},
-	{0x2206, 0x05F6}, {0x2206, 0x25E4}, {0x2206, 0x8B8E}, {0x2206, 0xE08B},
-	{0x2206, 0x8EAD}, {0x2206, 0x260B}, {0x2206, 0xF626}, {0x2206, 0xE48B},
-	{0x2206, 0x8E02}, {0x2206, 0x830D}, {0x2206, 0x021D}, {0x2206, 0x6BE0},
-	{0x2206, 0x8B8E}, {0x2206, 0xAD27}, {0x2206, 0x05F6}, {0x2206, 0x27E4},
-	{0x2206, 0x8B8E}, {0x2206, 0x0281}, {0x2206, 0x4402}, {0x2206, 0x045C},
-	{0x2206, 0xFC04}, {0x2206, 0xF8E0}, {0x2206, 0x8B83}, {0x2206, 0xAD23},
-	{0x2206, 0x30E0}, {0x2206, 0xE022}, {0x2206, 0xE1E0}, {0x2206, 0x2359},
-	{0x2206, 0x02E0}, {0x2206, 0x85EF}, {0x2206, 0xE585}, {0x2206, 0xEFAC},
-	{0x2206, 0x2907}, {0x2206, 0x1F01}, {0x2206, 0x9E51}, {0x2206, 0xAD29},
-	{0x2206, 0x20E0}, {0x2206, 0x8B83}, {0x2206, 0xAD21}, {0x2206, 0x06E1},
-	{0x2206, 0x8B84}, {0x2206, 0xAD28}, {0x2206, 0x42E0}, {0x2206, 0x8B85},
-	{0x2206, 0xAD21}, {0x2206, 0x06E1}, {0x2206, 0x8B84}, {0x2206, 0xAD29},
-	{0x2206, 0x36BF}, {0x2206, 0x34BF}, {0x2206, 0x022C}, {0x2206, 0x31AE},
-	{0x2206, 0x2EE0}, {0x2206, 0x8B83}, {0x2206, 0xAD21}, {0x2206, 0x10E0},
-	{0x2206, 0x8B84}, {0x2206, 0xF620}, {0x2206, 0xE48B}, {0x2206, 0x84EE},
-	{0x2206, 0x8ADA}, {0x2206, 0x00EE}, {0x2206, 0x8ADB}, {0x2206, 0x00E0},
-	{0x2206, 0x8B85}, {0x2206, 0xAD21}, {0x2206, 0x0CE0}, {0x2206, 0x8B84},
-	{0x2206, 0xF621}, {0x2206, 0xE48B}, {0x2206, 0x84EE}, {0x2206, 0x8B72},
-	{0x2206, 0xFFBF}, {0x2206, 0x34C2}, {0x2206, 0x022C}, {0x2206, 0x31FC},
-	{0x2206, 0x04F8}, {0x2206, 0xFAEF}, {0x2206, 0x69E0}, {0x2206, 0x8B85},
-	{0x2206, 0xAD21}, {0x2206, 0x42E0}, {0x2206, 0xE022}, {0x2206, 0xE1E0},
-	{0x2206, 0x2358}, {0x2206, 0xC059}, {0x2206, 0x021E}, {0x2206, 0x01E1},
-	{0x2206, 0x8B72}, {0x2206, 0x1F10}, {0x2206, 0x9E2F}, {0x2206, 0xE48B},
-	{0x2206, 0x72AD}, {0x2206, 0x2123}, {0x2206, 0xE18B}, {0x2206, 0x84F7},
-	{0x2206, 0x29E5}, {0x2206, 0x8B84}, {0x2206, 0xAC27}, {0x2206, 0x10AC},
-	{0x2206, 0x2605}, {0x2206, 0x0205}, {0x2206, 0x23AE}, {0x2206, 0x1602},
-	{0x2206, 0x0535}, {0x2206, 0x0282}, {0x2206, 0x30AE}, {0x2206, 0x0E02},
-	{0x2206, 0x056A}, {0x2206, 0x0282}, {0x2206, 0x75AE}, {0x2206, 0x0602},
-	{0x2206, 0x04DC}, {0x2206, 0x0282}, {0x2206, 0x04EF}, {0x2206, 0x96FE},
-	{0x2206, 0xFC04}, {0x2206, 0xF8F9}, {0x2206, 0xE08B}, {0x2206, 0x87AD},
-	{0x2206, 0x2321}, {0x2206, 0xE0EA}, {0x2206, 0x14E1}, {0x2206, 0xEA15},
-	{0x2206, 0xAD26}, {0x2206, 0x18F6}, {0x2206, 0x27E4}, {0x2206, 0xEA14},
-	{0x2206, 0xE5EA}, {0x2206, 0x15F6}, {0x2206, 0x26E4}, {0x2206, 0xEA14},
-	{0x2206, 0xE5EA}, {0x2206, 0x15F7}, {0x2206, 0x27E4}, {0x2206, 0xEA14},
-	{0x2206, 0xE5EA}, {0x2206, 0x15FD}, {0x2206, 0xFC04}, {0x2206, 0xF8F9},
-	{0x2206, 0xE08B}, {0x2206, 0x87AD}, {0x2206, 0x233A}, {0x2206, 0xAD22},
-	{0x2206, 0x37E0}, {0x2206, 0xE020}, {0x2206, 0xE1E0}, {0x2206, 0x21AC},
-	{0x2206, 0x212E}, {0x2206, 0xE0EA}, {0x2206, 0x14E1}, {0x2206, 0xEA15},
-	{0x2206, 0xF627}, {0x2206, 0xE4EA}, {0x2206, 0x14E5}, {0x2206, 0xEA15},
-	{0x2206, 0xE2EA}, {0x2206, 0x12E3}, {0x2206, 0xEA13}, {0x2206, 0x5A8F},
-	{0x2206, 0x6A20}, {0x2206, 0xE6EA}, {0x2206, 0x12E7}, {0x2206, 0xEA13},
-	{0x2206, 0xF726}, {0x2206, 0xE4EA}, {0x2206, 0x14E5}, {0x2206, 0xEA15},
-	{0x2206, 0xF727}, {0x2206, 0xE4EA}, {0x2206, 0x14E5}, {0x2206, 0xEA15},
-	{0x2206, 0xFDFC}, {0x2206, 0x04F8}, {0x2206, 0xF9E0}, {0x2206, 0x8B87},
-	{0x2206, 0xAD23}, {0x2206, 0x38AD}, {0x2206, 0x2135}, {0x2206, 0xE0E0},
-	{0x2206, 0x20E1}, {0x2206, 0xE021}, {0x2206, 0xAC21}, {0x2206, 0x2CE0},
-	{0x2206, 0xEA14}, {0x2206, 0xE1EA}, {0x2206, 0x15F6}, {0x2206, 0x27E4},
-	{0x2206, 0xEA14}, {0x2206, 0xE5EA}, {0x2206, 0x15E2}, {0x2206, 0xEA12},
-	{0x2206, 0xE3EA}, {0x2206, 0x135A}, {0x2206, 0x8FE6}, {0x2206, 0xEA12},
-	{0x2206, 0xE7EA}, {0x2206, 0x13F7}, {0x2206, 0x26E4}, {0x2206, 0xEA14},
-	{0x2206, 0xE5EA}, {0x2206, 0x15F7}, {0x2206, 0x27E4}, {0x2206, 0xEA14},
-	{0x2206, 0xE5EA}, {0x2206, 0x15FD}, {0x2206, 0xFC04}, {0x2206, 0xF8FA},
-	{0x2206, 0xEF69}, {0x2206, 0xE08B}, {0x2206, 0x86AD}, {0x2206, 0x2146},
-	{0x2206, 0xE0E0}, {0x2206, 0x22E1}, {0x2206, 0xE023}, {0x2206, 0x58C0},
-	{0x2206, 0x5902}, {0x2206, 0x1E01}, {0x2206, 0xE18B}, {0x2206, 0x651F},
-	{0x2206, 0x109E}, {0x2206, 0x33E4}, {0x2206, 0x8B65}, {0x2206, 0xAD21},
-	{0x2206, 0x22AD}, {0x2206, 0x272A}, {0x2206, 0xD400}, {0x2206, 0x01BF},
-	{0x2206, 0x34F2}, {0x2206, 0x022C}, {0x2206, 0xA2BF}, {0x2206, 0x34F5},
-	{0x2206, 0x022C}, {0x2206, 0xE0E0}, {0x2206, 0x8B67}, {0x2206, 0x1B10},
-	{0x2206, 0xAA14}, {0x2206, 0xE18B}, {0x2206, 0x660D}, {0x2206, 0x1459},
-	{0x2206, 0x0FAE}, {0x2206, 0x05E1}, {0x2206, 0x8B66}, {0x2206, 0x590F},
-	{0x2206, 0xBF85}, {0x2206, 0x6102}, {0x2206, 0x2CA2}, {0x2206, 0xEF96},
-	{0x2206, 0xFEFC}, {0x2206, 0x04F8}, {0x2206, 0xF9FA}, {0x2206, 0xFBEF},
-	{0x2206, 0x79E2}, {0x2206, 0x8AD2}, {0x2206, 0xAC19}, {0x2206, 0x2DE0},
-	{0x2206, 0xE036}, {0x2206, 0xE1E0}, {0x2206, 0x37EF}, {0x2206, 0x311F},
-	{0x2206, 0x325B}, {0x2206, 0x019E}, {0x2206, 0x1F7A}, {0x2206, 0x0159},
-	{0x2206, 0x019F}, {0x2206, 0x0ABF}, {0x2206, 0x348E}, {0x2206, 0x022C},
-	{0x2206, 0x31F6}, {0x2206, 0x06AE}, {0x2206, 0x0FF6}, {0x2206, 0x0302},
-	{0x2206, 0x0470}, {0x2206, 0xF703}, {0x2206, 0xF706}, {0x2206, 0xBF34},
-	{0x2206, 0x9302}, {0x2206, 0x2C31}, {0x2206, 0xAC1A}, {0x2206, 0x25E0},
-	{0x2206, 0xE022}, {0x2206, 0xE1E0}, {0x2206, 0x23EF}, {0x2206, 0x300D},
-	{0x2206, 0x311F}, {0x2206, 0x325B}, {0x2206, 0x029E}, {0x2206, 0x157A},
-	{0x2206, 0x0258}, {0x2206, 0xC4A0}, {0x2206, 0x0408}, {0x2206, 0xBF34},
-	{0x2206, 0x9E02}, {0x2206, 0x2C31}, {0x2206, 0xAE06}, {0x2206, 0xBF34},
-	{0x2206, 0x9C02}, {0x2206, 0x2C31}, {0x2206, 0xAC1B}, {0x2206, 0x4AE0},
-	{0x2206, 0xE012}, {0x2206, 0xE1E0}, {0x2206, 0x13EF}, {0x2206, 0x300D},
-	{0x2206, 0x331F}, {0x2206, 0x325B}, {0x2206, 0x1C9E}, {0x2206, 0x3AEF},
-	{0x2206, 0x325B}, {0x2206, 0x1C9F}, {0x2206, 0x09BF}, {0x2206, 0x3498},
-	{0x2206, 0x022C}, {0x2206, 0x3102}, {0x2206, 0x83C5}, {0x2206, 0x5A03},
-	{0x2206, 0x0D03}, {0x2206, 0x581C}, {0x2206, 0x1E20}, {0x2206, 0x0207},
-	{0x2206, 0xA0A0}, {0x2206, 0x000E}, {0x2206, 0x0284}, {0x2206, 0x17AD},
-	{0x2206, 0x1817}, {0x2206, 0xBF34}, {0x2206, 0x9A02}, {0x2206, 0x2C31},
-	{0x2206, 0xAE0F}, {0x2206, 0xBF34}, {0x2206, 0xC802}, {0x2206, 0x2C31},
-	{0x2206, 0xBF34}, {0x2206, 0xC502}, {0x2206, 0x2C31}, {0x2206, 0x0284},
-	{0x2206, 0x52E6}, {0x2206, 0x8AD2}, {0x2206, 0xEF97}, {0x2206, 0xFFFE},
-	{0x2206, 0xFDFC}, {0x2206, 0x04F8}, {0x2206, 0xBF34}, {0x2206, 0xDA02},
-	{0x2206, 0x2CE0}, {0x2206, 0xE58A}, {0x2206, 0xD3BF}, {0x2206, 0x34D4},
-	{0x2206, 0x022C}, {0x2206, 0xE00C}, {0x2206, 0x1159}, {0x2206, 0x02E0},
-	{0x2206, 0x8AD3}, {0x2206, 0x1E01}, {0x2206, 0xE48A}, {0x2206, 0xD3D1},
-	{0x2206, 0x00BF}, {0x2206, 0x34DA}, {0x2206, 0x022C}, {0x2206, 0xA2D1},
-	{0x2206, 0x01BF}, {0x2206, 0x34D4}, {0x2206, 0x022C}, {0x2206, 0xA2BF},
-	{0x2206, 0x34CB}, {0x2206, 0x022C}, {0x2206, 0xE0E5}, {0x2206, 0x8ACE},
-	{0x2206, 0xBF85}, {0x2206, 0x6702}, {0x2206, 0x2CE0}, {0x2206, 0xE58A},
-	{0x2206, 0xCFBF}, {0x2206, 0x8564}, {0x2206, 0x022C}, {0x2206, 0xE0E5},
-	{0x2206, 0x8AD0}, {0x2206, 0xBF85}, {0x2206, 0x6A02}, {0x2206, 0x2CE0},
-	{0x2206, 0xE58A}, {0x2206, 0xD1FC}, {0x2206, 0x04F8}, {0x2206, 0xE18A},
-	{0x2206, 0xD1BF}, {0x2206, 0x856A}, {0x2206, 0x022C}, {0x2206, 0xA2E1},
-	{0x2206, 0x8AD0}, {0x2206, 0xBF85}, {0x2206, 0x6402}, {0x2206, 0x2CA2},
-	{0x2206, 0xE18A}, {0x2206, 0xCFBF}, {0x2206, 0x8567}, {0x2206, 0x022C},
-	{0x2206, 0xA2E1}, {0x2206, 0x8ACE}, {0x2206, 0xBF34}, {0x2206, 0xCB02},
-	{0x2206, 0x2CA2}, {0x2206, 0xE18A}, {0x2206, 0xD3BF}, {0x2206, 0x34DA},
-	{0x2206, 0x022C}, {0x2206, 0xA2E1}, {0x2206, 0x8AD3}, {0x2206, 0x0D11},
-	{0x2206, 0xBF34}, {0x2206, 0xD402}, {0x2206, 0x2CA2}, {0x2206, 0xFC04},
-	{0x2206, 0xF9A0}, {0x2206, 0x0405}, {0x2206, 0xE38A}, {0x2206, 0xD4AE},
-	{0x2206, 0x13A0}, {0x2206, 0x0805}, {0x2206, 0xE38A}, {0x2206, 0xD5AE},
-	{0x2206, 0x0BA0}, {0x2206, 0x0C05}, {0x2206, 0xE38A}, {0x2206, 0xD6AE},
-	{0x2206, 0x03E3}, {0x2206, 0x8AD7}, {0x2206, 0xEF13}, {0x2206, 0xBF34},
-	{0x2206, 0xCB02}, {0x2206, 0x2CA2}, {0x2206, 0xEF13}, {0x2206, 0x0D11},
-	{0x2206, 0xBF85}, {0x2206, 0x6702}, {0x2206, 0x2CA2}, {0x2206, 0xEF13},
-	{0x2206, 0x0D14}, {0x2206, 0xBF85}, {0x2206, 0x6402}, {0x2206, 0x2CA2},
-	{0x2206, 0xEF13}, {0x2206, 0x0D17}, {0x2206, 0xBF85}, {0x2206, 0x6A02},
-	{0x2206, 0x2CA2}, {0x2206, 0xFD04}, {0x2206, 0xF8E0}, {0x2206, 0x8B85},
-	{0x2206, 0xAD27}, {0x2206, 0x2DE0}, {0x2206, 0xE036}, {0x2206, 0xE1E0},
-	{0x2206, 0x37E1}, {0x2206, 0x8B73}, {0x2206, 0x1F10}, {0x2206, 0x9E20},
-	{0x2206, 0xE48B}, {0x2206, 0x73AC}, {0x2206, 0x200B}, {0x2206, 0xAC21},
-	{0x2206, 0x0DAC}, {0x2206, 0x250F}, {0x2206, 0xAC27}, {0x2206, 0x0EAE},
-	{0x2206, 0x0F02}, {0x2206, 0x84CC}, {0x2206, 0xAE0A}, {0x2206, 0x0284},
-	{0x2206, 0xD1AE}, {0x2206, 0x05AE}, {0x2206, 0x0302}, {0x2206, 0x84D8},
-	{0x2206, 0xFC04}, {0x2206, 0xEE8B}, {0x2206, 0x6800}, {0x2206, 0x0402},
-	{0x2206, 0x84E5}, {0x2206, 0x0285}, {0x2206, 0x2804}, {0x2206, 0x0285},
-	{0x2206, 0x4904}, {0x2206, 0xEE8B}, {0x2206, 0x6800}, {0x2206, 0xEE8B},
-	{0x2206, 0x6902}, {0x2206, 0x04F8}, {0x2206, 0xF9E0}, {0x2206, 0x8B85},
-	{0x2206, 0xAD26}, {0x2206, 0x38D0}, {0x2206, 0x0B02}, {0x2206, 0x2B4D},
-	{0x2206, 0x5882}, {0x2206, 0x7882}, {0x2206, 0x9F2D}, {0x2206, 0xE08B},
-	{0x2206, 0x68E1}, {0x2206, 0x8B69}, {0x2206, 0x1F10}, {0x2206, 0x9EC8},
-	{0x2206, 0x10E4}, {0x2206, 0x8B68}, {0x2206, 0xE0E0}, {0x2206, 0x00E1},
-	{0x2206, 0xE001}, {0x2206, 0xF727}, {0x2206, 0xE4E0}, {0x2206, 0x00E5},
-	{0x2206, 0xE001}, {0x2206, 0xE2E0}, {0x2206, 0x20E3}, {0x2206, 0xE021},
-	{0x2206, 0xAD30}, {0x2206, 0xF7F6}, {0x2206, 0x27E4}, {0x2206, 0xE000},
-	{0x2206, 0xE5E0}, {0x2206, 0x01FD}, {0x2206, 0xFC04}, {0x2206, 0xF8FA},
-	{0x2206, 0xEF69}, {0x2206, 0xE08B}, {0x2206, 0x86AD}, {0x2206, 0x2212},
-	{0x2206, 0xE0E0}, {0x2206, 0x14E1}, {0x2206, 0xE015}, {0x2206, 0xAD26},
-	{0x2206, 0x9CE1}, {0x2206, 0x85E0}, {0x2206, 0xBF85}, {0x2206, 0x6D02},
-	{0x2206, 0x2CA2}, {0x2206, 0xEF96}, {0x2206, 0xFEFC}, {0x2206, 0x04F8},
-	{0x2206, 0xFAEF}, {0x2206, 0x69E0}, {0x2206, 0x8B86}, {0x2206, 0xAD22},
-	{0x2206, 0x09E1}, {0x2206, 0x85E1}, {0x2206, 0xBF85}, {0x2206, 0x6D02},
-	{0x2206, 0x2CA2}, {0x2206, 0xEF96}, {0x2206, 0xFEFC}, {0x2206, 0x0464},
-	{0x2206, 0xE48C}, {0x2206, 0xFDE4}, {0x2206, 0x80CA}, {0x2206, 0xE480},
-	{0x2206, 0x66E0}, {0x2206, 0x8E70}, {0x2206, 0xE076}, {0x2205, 0xE142},
-	{0x2206, 0x0701}, {0x2205, 0xE140}, {0x2206, 0x0405}, {0x220F, 0x0000},
-	{0x221F, 0x0000}, {0x2200, 0x1340}, {0x133E, 0x000E}, {0x133F, 0x0010},
-	{0x13EB, 0x11BB}
-};
-
-static const struct rtl8367b_initval rtl8367r_vb_initvals_1[] = {
+static const struct rtl8367b_initval rtl8367b_initvals[] = {
 	{0x1B03, 0x0876}, {0x1200, 0x7FC4}, {0x1305, 0xC000}, {0x121E, 0x03CA},
 	{0x1233, 0x0352}, {0x1234, 0x0064}, {0x1237, 0x0096}, {0x1238, 0x0078},
 	{0x1239, 0x0084}, {0x123A, 0x0030}, {0x205F, 0x0002}, {0x2059, 0x1A00},
@@ -612,6 +429,20 @@ static const struct rtl8367b_initval rtl8367r_vb_initvals_1[] = {
 	{0x133F, 0x0010}, {0x13EB, 0x11BB}, {0x207F, 0x0002}, {0x2073, 0x1D22},
 	{0x207F, 0x0000}, {0x133F, 0x0030}, {0x133E, 0x000E}, {0x2200, 0x1340},
 	{0x133E, 0x000E}, {0x133F, 0x0010},
+};
+
+static const struct rtl8367b_initval rtl8367c_initvals[] = {
+	{0x13c2, 0x0000}, {0x0018, 0x0f00}, {0x0038, 0x0f00}, {0x0058, 0x0f00},
+	{0x0078, 0x0f00}, {0x0098, 0x0f00}, {0x1d15, 0x0a69}, {0x2000, 0x1340},
+	{0x2020, 0x1340}, {0x2040, 0x1340}, {0x2060, 0x1340}, {0x2080, 0x1340},
+	{0x13eb, 0x15bb}, {0x1303, 0x06d6}, {0x1304, 0x0700}, {0x13E2, 0x003F},
+	{0x13F9, 0x0090}, {0x121e, 0x03CA}, {0x1233, 0x0352}, {0x1237, 0x00a0},
+	{0x123a, 0x0030}, {0x1239, 0x0084}, {0x0301, 0x1000}, {0x1349, 0x001F},
+	{0x18e0, 0x4004}, {0x122b, 0x641c}, {0x1305, 0xc000}, {0x1200, 0x7fcb},
+	{0x0884, 0x0003}, {0x06eb, 0x0001}, {0x00cf, 0xffff}, {0x00d0, 0x0007},
+	{0x00ce, 0x48b0}, {0x00ce, 0x48b0}, {0x0398, 0xffff}, {0x0399, 0x0007},
+	{0x0300, 0x0001}, {0x03fa, 0x0007}, {0x08c8, 0x00c0}, {0x0a30, 0x020e},
+	{0x0800, 0x0000}, {0x0802, 0x0000}, {0x09da, 0x0017}, {0x1d32, 0x0002},
 };
 
 static int rtl8367b_write_initvals(struct rtl8366_smi *smi,
@@ -725,63 +556,29 @@ static int rtl8367b_write_phy_reg(struct rtl8366_smi *smi,
 static int rtl8367b_init_regs(struct rtl8366_smi *smi)
 {
 	const struct rtl8367b_initval *initvals;
-	u32 chip_ver;
-	u32 rlvid;
 	int count;
-	int err;
 
-	REG_WR(smi, RTL8367B_RTL_MAGIC_ID_REG, RTL8367B_RTL_MAGIC_ID_VAL);
-	REG_RD(smi, RTL8367B_CHIP_VER_REG, &chip_ver);
-
-	rlvid = (chip_ver >> RTL8367B_CHIP_VER_RLVID_SHIFT) &
-		RTL8367B_CHIP_VER_RLVID_MASK;
-
-	switch (rlvid) {
-	case 0:
-		initvals = rtl8367r_vb_initvals_0;
-		count = ARRAY_SIZE(rtl8367r_vb_initvals_0);
+	switch (smi->rtl8367b_chip) {
+	case RTL8367B_CHIP_RTL8367RB:
+	case RTL8367B_CHIP_RTL8367R_VB:
+		initvals = rtl8367b_initvals;
+		count = ARRAY_SIZE(rtl8367b_initvals);
 		break;
-
-	case 1:
-		initvals = rtl8367r_vb_initvals_1;
-		count = ARRAY_SIZE(rtl8367r_vb_initvals_1);
+	case RTL8367B_CHIP_RTL8367RB_VB:
+	case RTL8367B_CHIP_RTL8367S:
+	case RTL8367B_CHIP_RTL8367S_VB:
+		initvals = rtl8367c_initvals;
+		count = ARRAY_SIZE(rtl8367c_initvals);
+		if ((smi->rtl8367b_chip == RTL8367B_CHIP_RTL8367S_VB) && (smi->emu_vlanmc == NULL)) {
+			smi->emu_vlanmc = kzalloc(sizeof(struct rtl8366_vlan_mc) * smi->num_vlan_mc, GFP_KERNEL);
+			dev_info(smi->parent, "alloc vlan mc emulator");
+		}
 		break;
-
 	default:
-		dev_err(smi->parent, "unknow rlvid %u\n", rlvid);
 		return -ENODEV;
 	}
 
-	/* TODO: disable RLTP */
-
 	return rtl8367b_write_initvals(smi, initvals, count);
-}
-
-/*
- * The DIR-842 R1 external switch is an RTL8367S. Its VLAN/MIB register
- * interface is 8367B-compatible (so detect + swconfig work), but its
- * chip-reset and external-interface (RGMII) registers differ from the
- * 8367R-VB. The board's power-on straps already bring the RGMII CPU uplink up
- * correctly (stock + our M5 image both forward through it), so we must NOT run
- * the 8367B HW reset + 8367R-VB init/extif sequence on it — that tears the
- * uplink down with no 8367S-correct way to restore it from this driver.
- * Detect the chip so reset_chip()/setup() can preserve the power-on config and
- * only layer swconfig VLAN management on top.
- */
-/* Apply stock's 0x890-0x892 = (1 << cpu_port) narrowing on the 8367S. 1 = on. */
-static int dir842_cpu_port_mask;	/* default OFF -- see below */
-module_param(dir842_cpu_port_mask, int, 0644);
-MODULE_PARM_DESC(dir842_cpu_port_mask,
-		 "DIR-842: write 8367S regs 0x890-0x892 = 1<<cpu_port at probe, as stock does (1=on default, 0=leave the loader's 0x00ff).");
-
-static bool rtl8367b_is_8367s(struct rtl8366_smi *smi)
-{
-	u32 chip_num = 0;
-
-	rtl8366_smi_write_reg(smi, RTL8367B_RTL_MAGIC_ID_REG,
-			      RTL8367B_RTL_MAGIC_ID_VAL);
-	rtl8366_smi_read_reg(smi, RTL8367B_CHIP_NUMBER_REG, &chip_num);
-	return chip_num == 0x6367;
 }
 
 static int rtl8367b_reset_chip(struct rtl8366_smi *smi)
@@ -789,21 +586,6 @@ static int rtl8367b_reset_chip(struct rtl8366_smi *smi)
 	int timeout = 10;
 	int err;
 	u32 data;
-
-	if (rtl8367b_is_8367s(smi)) {
-		/* Do NOT reset the 8367S here. Empirically (live-instrumented on the
-		 * DIR-842 bench): a gpio474 HW-reset at probe fires AFTER the boot
-		 * loader has already brought up the SoC-side RGMII trunk (P0GMIICR/
-		 * PCRP0 in init_97f_8367r) against the pre-reset chip. Re-strapping the
-		 * 8367S now desynchronises the EXT1<->SoC-P0 pair: the link forces up
-		 * 1000/full but the data plane is dead BOTH ways (SoC eth0 rx=0,
-		 * CPUIISR=0; 8367S port6 ifIn=0 while its L2 still forwards jack->port6,
-		 * ifOut>0). The loader's power-on RTL8367R_init already brings the
-		 * uplink up coherently, so preserve it. Cold (flashed) bring-up — where
-		 * the loader ran no RTL8367R_init — is done conditionally in setup(),
-		 * gated on the chip reading un-configured. */
-		return 0;
-	}
 
 	REG_WR(smi, RTL8367B_CHIP_RESET_REG, RTL8367B_CHIP_RESET_HW);
 	msleep(RTL8367B_RESET_DELAY);
@@ -828,6 +610,7 @@ static int rtl8367b_extif_set_mode(struct rtl8366_smi *smi, int id,
 				   enum rtl8367_extif_mode mode)
 {
 	int err;
+	u32 data;
 
 	/* set port mode */
 	switch (mode) {
@@ -847,6 +630,15 @@ static int rtl8367b_extif_set_mode(struct rtl8366_smi *smi, int id,
 					RTL8367B_DEBUG1_DP_MASK(id),
 				(7 << RTL8367B_DEBUG1_DN_SHIFT(id)) |
 					(7 << RTL8367B_DEBUG1_DP_SHIFT(id)));
+			if ((smi->rtl8367b_chip == RTL8367B_CHIP_RTL8367S_VB) && (id == 1)) {
+				REG_RMW(smi, RTL8367D_REG_EXT_TXC_DLY, RTL8367D_EXT1_RGMII_TX_DLY_MASK, 0);
+				/* Configure RGMII/MII mux to port 7 if UTP_PORT4 is not RGMII mode */
+				REG_RD(smi, RTL8367D_REG_TOP_CON0, &data);
+				data &= RTL8367D_MAC4_SEL_EXT1_MASK;
+				if (data == 0)
+					REG_RMW(smi, RTL8367D_REG_TOP_CON0, RTL8367D_MAC7_SEL_EXT1_MASK, RTL8367D_MAC7_SEL_EXT1_MASK);
+				REG_RMW(smi, RTL8367D_REG_SDS1_MISC0, RTL8367D_SDS1_MODE_MASK, RTL8367D_PORT_SDS_MODE_DISABLE);
+			}
 		} else {
 			REG_RMW(smi, RTL8367B_CHIP_DEBUG2_REG,
 				RTL8367B_DEBUG2_DRI_EXT2 |
@@ -905,23 +697,31 @@ static int rtl8367b_extif_set_force(struct rtl8366_smi *smi, int id,
 	u32 val;
 	int err;
 
-	mask = (RTL8367B_DI_FORCE_MODE |
-		RTL8367B_DI_FORCE_NWAY |
-		RTL8367B_DI_FORCE_TXPAUSE |
-		RTL8367B_DI_FORCE_RXPAUSE |
-		RTL8367B_DI_FORCE_LINK |
-		RTL8367B_DI_FORCE_DUPLEX |
-		RTL8367B_DI_FORCE_SPEED_MASK);
-
-	val = pa->speed;
-	val |= pa->force_mode ? RTL8367B_DI_FORCE_MODE : 0;
+	val = pa->speed & RTL8367B_DI_FORCE_SPEED_MASK;
 	val |= pa->nway ? RTL8367B_DI_FORCE_NWAY : 0;
 	val |= pa->txpause ? RTL8367B_DI_FORCE_TXPAUSE : 0;
 	val |= pa->rxpause ? RTL8367B_DI_FORCE_RXPAUSE : 0;
 	val |= pa->link ? RTL8367B_DI_FORCE_LINK : 0;
 	val |= pa->duplex ? RTL8367B_DI_FORCE_DUPLEX : 0;
 
-	REG_RMW(smi, RTL8367B_DI_FORCE_REG(id), mask, val);
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) { /* Family D */
+		val |= (pa->speed << RTL8367D_PORT_STATUS_SPEED1_SHIFT) & RTL8367D_PORT_STATUS_SPEED1_MASK;
+		if (smi->cpu_port != UINT_MAX) {
+			REG_WR(smi, RTL8367D_REG_MAC0_FORCE_SELECT + smi->cpu_port, val);
+			REG_WR(smi, RTL8367D_REG_MAC0_FORCE_SELECT_EN + smi->cpu_port, pa->force_mode ? 0xffff : 0x0000);
+		}
+	} else {
+		val |= pa->force_mode ? RTL8367B_DI_FORCE_MODE : 0;
+		mask = (RTL8367B_DI_FORCE_MODE |
+			RTL8367B_DI_FORCE_NWAY |
+			RTL8367B_DI_FORCE_TXPAUSE |
+			RTL8367B_DI_FORCE_RXPAUSE |
+			RTL8367B_DI_FORCE_LINK |
+			RTL8367B_DI_FORCE_DUPLEX |
+			RTL8367B_DI_FORCE_SPEED_MASK);
+
+		REG_RMW(smi, RTL8367B_DI_FORCE_REG(id), mask, val);
+	}
 
 	return 0;
 }
@@ -972,21 +772,56 @@ static int rtl8367b_extif_init(struct rtl8366_smi *smi, int id,
 }
 
 #ifdef CONFIG_OF
-static int rtl8367b_extif_init_of(struct rtl8366_smi *smi, int id,
+static int rtl8367b_extif_init_of(struct rtl8366_smi *smi,
 				  const char *name)
 {
 	struct rtl8367_extif_config *cfg;
 	const __be32 *prop;
 	int size;
 	int err;
+	unsigned cpu_port;
+	unsigned id = UINT_MAX;
 
 	prop = of_get_property(smi->parent->of_node, name, &size);
-	if (!prop)
-		return rtl8367b_extif_init(smi, id, NULL);
+	if (!prop || (size != (10 * sizeof(*prop)))) {
+		dev_err(smi->parent, "%s property is not defined or invalid\n", name);
+		err = -EINVAL;
+		goto err_init;
+	}
 
-	if (size != (9 * sizeof(*prop))) {
-		dev_err(smi->parent, "%s property is invalid\n", name);
-		return -EINVAL;
+	cpu_port = be32_to_cpup(prop++);
+	switch (cpu_port) {
+	case RTL8367B_CPU_PORT_NUM:
+	case RTL8367B_CPU_PORT_NUM + 1:
+	case RTL8367B_CPU_PORT_NUM + 2:
+		if (smi->rtl8367b_chip == RTL8367B_CHIP_RTL8367R_VB) { /* for the RTL8367R-VB chip, cpu_port 5 corresponds to extif1 */
+			if (cpu_port == RTL8367B_CPU_PORT_NUM)
+				id = 1;
+			else {
+				dev_err(smi->parent, "wrong cpu_port %u in %s property\n", cpu_port, name);
+				err = -EINVAL;
+				goto err_init;
+			}
+		} else if (smi->rtl8367b_chip == RTL8367B_CHIP_RTL8367S_VB) { /* for the RTL8367S-VB chip, cpu_port 7 corresponds to extif1, cpu_port 6 corresponds to extif0 */
+			if (cpu_port != RTL8367B_CPU_PORT_NUM) {
+				id = cpu_port - RTL8367B_CPU_PORT_NUM - 1;
+			} else {
+				dev_err(smi->parent, "wrong cpu_port %u in %s property\n", cpu_port, name);
+				err = -EINVAL;
+				goto err_init;
+			}
+		} else {
+			id = cpu_port - RTL8367B_CPU_PORT_NUM;
+		}
+		if (smi->cpu_port == UINT_MAX) {
+			dev_info(smi->parent, "cpu_port:%u, assigned to extif%u\n", cpu_port, id);
+			smi->cpu_port = cpu_port;
+		}
+		break;
+	default:
+		dev_err(smi->parent, "wrong cpu_port %u in %s property\n", cpu_port, name);
+		err = -EINVAL;
+		goto err_init;
 	}
 
 	cfg = kzalloc(sizeof(struct rtl8367_extif_config), GFP_KERNEL);
@@ -1006,10 +841,15 @@ static int rtl8367b_extif_init_of(struct rtl8366_smi *smi, int id,
 	err = rtl8367b_extif_init(smi, id, cfg);
 	kfree(cfg);
 
+err_init:
+	if (id != 0) rtl8367b_extif_init(smi, 0, NULL);
+	if (id != 1) rtl8367b_extif_init(smi, 1, NULL);
+	if (id != 2) rtl8367b_extif_init(smi, 2, NULL);
+
 	return err;
 }
 #else
-static int rtl8367b_extif_init_of(struct rtl8366_smi *smi, int id,
+static int rtl8367b_extif_init_of(struct rtl8366_smi *smi,
 				  const char *name)
 {
 	return -EINVAL;
@@ -1017,112 +857,93 @@ static int rtl8367b_extif_init_of(struct rtl8366_smi *smi, int id,
 #endif
 
 /*
- * DIR-842 (RTL8367S) cascade: turn on the Realtek CPU-tag / source-port tag on
- * the RGMII trunk so the 5 jacks appear to the SoC as switch ports 0-4. This is
- * the 8367S half of the cascade; the SoC half (P0GMIICR CFG_CPUC_TAG) lives in
- * rtl865x_asichal.c's gw_prog, which calls this so both trunk ends flip
- * together (setting only one end desyncs the tag format and drops all frames).
- * RE'd byte-exact from stock RTL8367R_cpu_tag @0x801c7454:
- *   reg 0x1219 = (1 << cpuPort);   reg 0x121A = (cpuPort << 3) | 0x281
- * cpuPort = the EXT RGMII uplink port (6 on this board; 5 if reg 0x1301
- * nibble[7:4]==1, matching the stock cpuPort global @0x80658ac4).
+ * Tenda AC8 v1.  The stock eCos switch init (0x80127a10) is: hardware reset
+ * (0x1322 = 1, 1.2 s), rtk_switch_init() (= rtl8367b_init_regs() for the C
+ * family), rtk_led_enable_set() for both LED groups on ports 0-4, EXT1 forced
+ * RGMII 1000/full with pause, EXT1 delays tx 0 rx 2, the CPU tag on port 6,
+ * then LED mode, flow control thresholds and SSC, and at the very end EXT1
+ * delays tx 0 rx 5 again.  The OpenWrt part of that sequence is the reset,
+ * init_regs and realtek,extif; this adds the rest for
+ * realtek,rtl8197f-ac8-oem-init, and for realtek,cpu-tag-insert-all the CPU
+ * tag the rtl819x driver of the SoC decodes (source jack in every frame).
+ * Delays set at run time through rtl8367s_ext1_delay() survive the chip
+ * reset of every swconfig "reset".
  */
-static struct rtl8366_smi *g_dir842_smi;
+static struct rtl8366_smi *rtl8367_ac8_smi;
+static int rtl8367_ac8_ext1_tx = -1;
+static int rtl8367_ac8_ext1_rx = -1;
 
-int rtl8367s_cpu_tag_enable(void)
+static const struct rtl8367b_initval rtl8367_ac8_oem_initvals[] = {
+	{0x1b24, 0x1f1f},	/* rtk_led_enable_set: LED IO, groups 0/1, ports 0-4 */
+	{0x1b03, 0x0936},	/* LED mode */
+	{0x121f, 0x01d6}, {0x1220, 0x01b8}, {0x1221, 0x01cc}, {0x1222, 0x01ae},
+	{0x1223, 0x0302}, {0x1224, 0x02e4}, {0x1225, 0x02d0}, {0x1226, 0x02a8},
+	{0x13c3, 0x0000}, {0x13c4, 0x0000},
+	{0x1d53, 0x0001}, {0x1d55, 0x000f}, {0x1d54, 0x05fa}, {0x1d52, 0x2473},
+	{0x1d5a, 0x0001}, {0x1d5c, 0x000f}, {0x1d5b, 0x05fa}, {0x1d59, 0x2473},
+};
+
+static int rtl8367_ac8_cpu_tag(struct rtl8366_smi *smi)
 {
-	struct rtl8366_smi *smi = g_dir842_smi;
-	u32 v1301 = 0, v1219 = 0, v121a = 0;
-	unsigned int cpuport;
-
-	if (!smi)
-		return -ENODEV;
-
-	rtl8366_smi_read_reg(smi, 0x1301, &v1301);
-	cpuport = (((v1301 >> 4) & 0xf) == 1) ? 5 : 6;
-
-	/* Exact stock CPU-tag registers (register-diff: read live from a
-	 * stock->loader->RAM-boot — stock's 8367S config survives the loader). The
-	 * prior RTL8367R_cpu_tag-only values (0x121a=0x2b1, no 0x890-0x893) were
-	 * insufficient for the SoC RX-decode; the source-port-tag insertion needs
-	 * 0x890-0x893=0xff and 0x121a/b=0xb5 (set by init_8367r's fn 0x801c7258 path). */
-	rtl8366_smi_write_reg(smi, 0x1219, 0x0040);
-	/* ★ 0x2b1, not the loader's 0x00b5. 0x2b1 = EN(bit0) | INSERTMODE=0 "to ALL"
-	 * (bits2:1) | TRAP_PORT=6(bits5:3) | RXBYTECOUNT(bit7) | TAG_FORMAT=1 4-byte
-	 * (bit9). The loader leaves 0x00b5 = enabled but INSERTMODE=2 ("to NONE") in the
-	 * 8-byte format -- the tag is turned on and then never inserted, and that one
-	 * field is what hid the real jacks from the SoC. Vendor RTL8367R_cpu_tag(),
-	 * rtl8367r/rtk_api.c:19641. (The second 0x00b5 write further down is the Fork A
-	 * path and must stay as-is: it is only reached with CPU-tag decode OFF.) */
-	rtl8366_smi_write_reg(smi, 0x121a, 0x02b1);
-	rtl8366_smi_write_reg(smi, 0x121b, 0x00b5);
-	rtl8366_smi_write_reg(smi, 0x0890, 0x00ff);
-	rtl8366_smi_write_reg(smi, 0x0891, 0x00ff);
-	rtl8366_smi_write_reg(smi, 0x0892, 0x00ff);
-	rtl8366_smi_write_reg(smi, 0x0893, 0x00ff);
-
-	rtl8366_smi_read_reg(smi, 0x1219, &v1219);
-	rtl8366_smi_read_reg(smi, 0x121a, &v121a);
-	printk(KERN_ERR "DIR842 8367S cpu_tag ON: cpuPort=%u reg1301=%04x "
-	       "reg1219=%04x reg121a=%04x\n", cpuport, v1301, v1219, v121a);
-	return 0;
-}
-EXPORT_SYMBOL(rtl8367s_cpu_tag_enable);
-
-/*
- * A-2 residual (a2-residual): 802.3x PAUSE on the 8367S side of the RGMII
- * trunk (EXT1 = phys port 6, the SoC-P0 uplink) — a SURGICAL read-modify-write
- * of the DI1 force register (0x1311 = RTL8367B_DI_FORCE_REG(1)) ONLY.
- *
- * Why: a routed LAN->WAN flow U-turns on the single trunk (ingress VID2 +
- * egress VID1 on the SAME SoC port0), so under a saturating TCP burst the
- * port0 egress queue is the tightest stage; when the SoC's per-port
- * descriptor threshold (PBFCR FCON=90) fires it can only shed load LOSSLESSLY
- * by PAUSE-ing the 8367S — which must generate (txpause) and honor (rxpause)
- * pause on EXT1. Mainline never programs this: reset_chip()/setup()
- * deliberately skip the whole extif-init/reset for the 8367S (re-strapping
- * desyncs the live trunk, see rtl8367b_is_8367s), so a LOADER boot inherits
- * the loader's EXT1 force value as-is. The flashed-boot cold bring-up in
- * setup() already forces 0x1311=0x1076 (pause bits included); this helper
- * only closes the loader-boot gap, WITHOUT touching mode/speed/duplex/link/
- * delay bits (the #12/#14 desync hazard class).
- *
- * on!=0: set FORCE_TXPAUSE|FORCE_RXPAUSE. on==0: clear them (bench A/B
- * lever, driven by rtl819x.trunk_pause=2). No-op with a print when already in
- * the requested state; -ENODEV until the SMI driver has probed (the caller
- * re-applies on the next eth0 open). Prints old->new for bench verification —
- * the OLD value on a loader boot is the ground truth for what the loader's
- * RTL8367R_init actually programs (incl. whether DI_FORCE_MODE bit12 is set;
- * if it is NOT, these ability bits are inert and the print exposes that).
- */
-int rtl8367s_trunk_pause_set(int on)
-{
-	struct rtl8366_smi *smi = g_dir842_smi;
-	const u32 pause = RTL8367B_DI_FORCE_TXPAUSE | RTL8367B_DI_FORCE_RXPAUSE;
-	u32 old = 0, want, back = 0;
+	unsigned int cpu = (smi->cpu_port == UINT_MAX) ? 6 : smi->cpu_port;
 	int err;
 
-	if (!smi)
-		return -ENODEV;
-
-	err = rtl8366_smi_read_reg(smi, RTL8367B_DI_FORCE_REG(1), &old);
-	if (err)
-		return err;
-	want = on ? (old | pause) : (old & ~pause);
-	if (want == old) {
-		printk(KERN_ERR "DIR842 8367S EXT1 pause: already %s (0x1311=%04x)\n",
-		       on ? "on" : "off", old);
-		return 0;
-	}
-	err = rtl8366_smi_write_reg(smi, RTL8367B_DI_FORCE_REG(1), want);
-	if (err)
-		return err;
-	rtl8366_smi_read_reg(smi, RTL8367B_DI_FORCE_REG(1), &back);
-	printk(KERN_ERR "DIR842 8367S EXT1 pause %s: 0x1311 %04x -> %04x\n",
-	       on ? "ON" : "OFF", old, back);
+	/* Vendor RTL8367R_cpu_tag(): 0x1219 = 1 << cpu port, 0x121a = 0x281 |
+	 * (cpu port << 3): enabled, insert to ALL, 4-byte format; 0x121b and
+	 * 0x890-0x893 as the D-Link DIR-842 R1 port writes them. */
+	REG_WR(smi, 0x1219, 1u << cpu);
+	REG_WR(smi, 0x121a, 0x0281 | (cpu << 3));
+	REG_WR(smi, 0x121b, 0x00b5);
+	REG_WR(smi, 0x0890, 0x00ff);
+	REG_WR(smi, 0x0891, 0x00ff);
+	REG_WR(smi, 0x0892, 0x00ff);
+	REG_WR(smi, 0x0893, 0x00ff);
 	return 0;
 }
-EXPORT_SYMBOL(rtl8367s_trunk_pause_set);
+
+static int rtl8367_ac8_setup(struct rtl8366_smi *smi)
+{
+	struct device_node *np = smi->parent->of_node;
+	u32 v;
+	int err;
+
+	rtl8367_ac8_smi = smi;
+	if (!np)
+		return 0;
+
+	if (of_property_read_bool(np, "realtek,rtl8197f-ac8-oem-init")) {
+		err = rtl8367b_write_initvals(smi, rtl8367_ac8_oem_initvals,
+					      ARRAY_SIZE(rtl8367_ac8_oem_initvals));
+		if (err)
+			return err;
+	}
+	if (rtl8367_ac8_ext1_tx >= 0 || rtl8367_ac8_ext1_rx >= 0) {
+		REG_RD(smi, RTL8367B_EXT_RGMXF_REG(1), &v);
+		if (rtl8367_ac8_ext1_tx >= 0)
+			v = (v & ~BIT(RTL8367B_EXT_RGMXF_TXDELAY_SHIFT)) |
+			    ((rtl8367_ac8_ext1_tx & 1) <<
+			     RTL8367B_EXT_RGMXF_TXDELAY_SHIFT);
+		if (rtl8367_ac8_ext1_rx >= 0)
+			v = (v & ~RTL8367B_EXT_RGMXF_RXDELAY_MASK) |
+			    (rtl8367_ac8_ext1_rx & RTL8367B_EXT_RGMXF_RXDELAY_MASK);
+		REG_WR(smi, RTL8367B_EXT_RGMXF_REG(1), v);
+	}
+	if (of_property_read_bool(np, "realtek,cpu-tag-insert-all")) {
+		err = rtl8367_ac8_cpu_tag(smi);
+		if (err)
+			return err;
+	}
+
+	REG_RD(smi, RTL8367B_EXT_RGMXF_REG(1), &v);
+	dev_info(smi->parent, "AC8: EXT1 RGMII tx delay %u, rx delay %u (0x1307=%04x)%s%s\n",
+		 !!(v & BIT(RTL8367B_EXT_RGMXF_TXDELAY_SHIFT)),
+		 v & RTL8367B_EXT_RGMXF_RXDELAY_MASK, v,
+		 of_property_read_bool(np, "realtek,rtl8197f-ac8-oem-init") ?
+			", stock LED/threshold/SSC init" : "",
+		 of_property_read_bool(np, "realtek,cpu-tag-insert-all") ?
+			", CPU tag to all" : "");
+	return 0;
+}
 
 static int rtl8367b_setup(struct rtl8366_smi *smi)
 {
@@ -1131,203 +952,24 @@ static int rtl8367b_setup(struct rtl8366_smi *smi)
 	int i;
 
 	pdata = smi->parent->platform_data;
-	g_dir842_smi = smi;
 
-	/*
-	 * DIR-842: the RTL8367S retains a wedged L2/forwarding state across warm
-	 * reboots (the D-Link loader never power-cycles it, and rtl8367b_reset_chip()
-	 * skips the soft reset for the 8367S to preserve the power-on RGMII uplink).
-	 * Symptom: the jack->CPU-port cascade is dead (eth0 rx_packets stays 0) even
-	 * though the CPU-tag regs read back correct and frames reach the switch —
-	 * the 8367S won't forward jack ingress out its CPU/trunk port (port6 ifOut
-	 * flat). The cure is a HARDWARE reset of the chip via SoC GPIO58 (global gpio
-	 * 474, the 1800351c gpio-controller base 448 + offset 26, active-low) which
-	 * makes it re-read its straps.
-	 *
-	 * IMPORTANT: it must happen BEFORE the boot loader initialises the SoC-side
-	 * trunk (which it does against the still-wedged chip, leaving a stale mismatch
-	 * an in-kernel pulse here can't undo). So the reset is driven from the HOST
-	 * over serial *before* the RAM-reload/reboot, not from this probe. Doing it
-	 * here would also re-fire mid-boot and sabotage that host-driven sequence.
-	 * (gpio474 pulse + reload + gw_prog + one-armed L3 => RX live, box pingable.)
-	 */
+	err = rtl8367b_init_regs(smi);
+	if (err)
+		return err;
 
-	/* DEBUG (register-diff): dump the 8367S CPU-tag region at setup entry, BEFORE
-	 * any of our writes, so a stock->RAM-boot shows whether stock's CPU-tag
-	 * insertion config (fn 0x801c7258: regs 0x890-0x892 + 0x1219/0x121A) survives
-	 * the D-Link loader. If it does, replicate the read values directly. */
-	if (rtl8367b_is_8367s(smi)) {
-		u32 dr, dv, cpu_mask = 0;
-		for (dr = 0x1219; dr <= 0x121c; dr++) {
-			rtl8366_smi_read_reg(smi, dr, &dv);
-			printk(KERN_ERR "DIR842 8367Sdump[%04x]=%04x\n", dr, dv);
-		}
-		for (dr = 0x0890; dr <= 0x0893; dr++) {
-			rtl8366_smi_read_reg(smi, dr, &dv);
-			printk(KERN_ERR "DIR842 8367Sdump[%04x]=%04x\n", dr, dv);
-		}
-
-		/* ★ STOCK PARITY, decoded from the stock kernel itself. At
-		 * 0x801c7394-0x801c73c0 stock writes regs 0x890/0x891/0x892 with
-		 * (1 << cpu_port) -- three reg_write() calls whose register number rides
-		 * each jal's delay slot:
-		 *     lw a1,-30012(s0) ; cpu_port
-		 *     sllv a1,s1,a1    ; 1 << cpu_port
-		 *     jal <reg_write>  ; li a0,0x890  (then 0x891, 0x892)
-		 * The D-Link loader leaves all three at 0x00ff (every port) -- which is what
-		 * this board boots with -- so stock NARROWS them to the CPU port and this
-		 * port never did. Reg 0x1219 already reads 0x0040 = 1<<6 from the loader,
-		 * independently confirming cpu_port 6 here.
-		 *
-		 * Undocumented in the open driver; the only claim is that stock sets them
-		 * this way and we did not.
-		 *
-		 * ✗ MEASURED: applying this ALONE kills the datapath outright (100% loss
-		 * both directions the moment it lands). That is consistent with these being
-		 * port-membership/flood masks: narrowing them to the CPU port strands every
-		 * frame at the CPU unless the REST of stock's switch model is in place too.
-		 * So stock's settings are a coherent whole and cannot be adopted piecemeal --
-		 * which is itself the clearest evidence yet that closing hardware offload
-		 * needs the full model, not individual register parity. Default OFF; set to
-		 * 1 only together with the rest of the cascade work. */
-		if (dir842_cpu_port_mask) {
-			u32 m = 1u << smi->cpu_port;
-
-			for (dr = 0x0890; dr <= 0x0892; dr++)
-				rtl8366_smi_write_reg(smi, dr, m);
-			printk(KERN_ERR "DIR842: 8367S 0x890-0x892 <- %04x (1<<cpu_port %u) stock parity\n",
-			       m, smi->cpu_port);
-		}
-
-		/* ---- RTL8367S EXT1 (CPU RGMII uplink) COLD bring-up (flashed boot only) ----
-		 * Replicate the loader's 8367S-correct SMI init so a FLASHED boot (no
-		 * loader RTL8367R_init) has a live uplink. BUT: on a loader-configured
-		 * boot (TFTP/monitor) the loader already brought this up coherently with
-		 * the SoC-P0 side, and re-writing the physical uplink regs with this
-		 * partial replica DESYNCS the RGMII pair -> data plane dead both ways
-		 * (proven live: link forced-up, SoC eth0 rx=0, 8367S port6 ifIn=0). So
-		 * gate on 0x1219 (CPU port mask): the loader's RTL8367R_init sets it to
-		 * 0x40; strap default is 0. Only bring up when un-configured (==0).
-		 * Registers cross-checked vs RTL8197F bootcode rtk_api (init_rtl8367r),
-		 * rtl8367c SDK, OpenWrt rtl8367c_initvals (4b81eda3c1a9), mainline
-		 * rtl8365mb. 8367S trap: EXT1 serdes/RGMII mux at SDS_MISC (0x1D11) bits
-		 * 6/11 must be cleared or the RGMII pads stay disconnected. */
-		rtl8366_smi_read_reg(smi, 0x1219, &cpu_mask);
-		if (cpu_mask != 0) {
-			dev_info(smi->parent,
-				 "RTL8367S: loader-configured uplink (0x1219=%04x) — preserving power-on RGMII trunk\n",
-				 cpu_mask);
-		} else {
-			static const u16 s_init[][2] = {
-				{0x13eb, 0x15bb}, {0x1303, 0x06d6}, {0x1304, 0x0700},
-				{0x13e2, 0x003f}, {0x13f9, 0x0090}, {0x121e, 0x03ca},
-				{0x1233, 0x0352}, {0x1237, 0x00a0}, {0x123a, 0x0030},
-				{0x1239, 0x0084}, {0x18e0, 0x4004}, {0x122b, 0x641c},
-				{0x1305, 0xc000}, {0x1d32, 0x0002}, {0x09da, 0x0017},
-				/* jack PHYs (0-4) BMCR: AN enable + restart, gigabit */
-				{0x2000, 0x1340}, {0x2020, 0x1340}, {0x2040, 0x1340},
-				{0x2060, 0x1340}, {0x2080, 0x1340},
-			};
-			int k;
-
-			rtl8366_smi_write_reg(smi, 0x13c2, 0x0249);	/* magic-ID unlock (leave on) */
-			for (k = 0; k < ARRAY_SIZE(s_init); k++)
-				rtl8366_smi_write_reg(smi, s_init[k][0], s_init[k][1]);
-			/* EXT1 uplink: RGMII delay BEFORE mode/force (vendor order) */
-			rtl8366_smi_rmwr(smi, 0x03f7, (1 << 1), 0);		/* not TMII */
-			rtl8366_smi_rmwr(smi, 0x1d11, (1 << 6) | (1 << 11), 0);	/* serdes mux OFF -> RGMII pads live */
-			rtl8366_smi_rmwr(smi, 0x1307, 0x000f, 0x0002);		/* EXT1 RGMXF: tx0 rx2 */
-			rtl8366_smi_rmwr(smi, 0x1305, 0x00f0, (1 << 4));	/* EXT1 mode = RGMII */
-			rtl8366_smi_write_reg(smi, 0x1311, 0x1076);		/* force 1000/full/link/tx+rx-pause */
-			/* CPU port + forwarding: the gpio474 HW reset above clears these to
-			 * strap-default (0x1219=0 => NO CPU port mask => nothing forwards to
-			 * the CPU), and swconfig doesn't restore them on an initramfs, so
-			 * program them here (values from the loader's RTL8367R_init). */
-			rtl8366_smi_write_reg(smi, 0x1219, 0x0040);		/* CPU port mask = phys port 6 (EXT1) */
-			/* #14: loader-EXACT CPU-ctrl bytes (init_97f_8367r) —
-			 * identical to the live stock/loader register dump that
-			 * rtl8367s_cpu_tag_enable() replicates (0x121a/0x121b =
-			 * 0x00b5, 0x890-0x893 = 0xff). The old masked write
-			 * (0x121a low6=0x35, no 0x121b/0x0893) was a partial-
-			 * replica gap vs the loader. With the SoC-side CPU-tag
-			 * decode OFF (P0GMIICR bits[26:25]=0, Fork A) these
-			 * values are proven tag-free on the wire — every working
-			 * loader boot runs with exactly them. */
-			rtl8366_smi_write_reg(smi, 0x121a, 0x00b5);
-			rtl8366_smi_write_reg(smi, 0x121b, 0x00b5);
-			rtl8366_smi_write_reg(smi, 0x0890, 0x00ff);		/* flood unknown DA -> all ports */
-			rtl8366_smi_write_reg(smi, 0x0891, 0x00ff);		/* flood unknown MC */
-			rtl8366_smi_write_reg(smi, 0x0892, 0x00ff);		/* flood BC */
-			rtl8366_smi_write_reg(smi, 0x0893, 0x00ff);		/* loader-exact 4th flood/behave mask */
-			for (k = 0; k <= 7; k++)
-				rtl8366_smi_write_reg(smi, 0x08a2 + k, 0x00ff);	/* no port isolation */
-			dev_info(smi->parent, "RTL8367S: EXT1 RGMII uplink + CPU/forwarding configured (flashed-boot bring-up)\n");
-		}
-	}
-
-	/*
-	 * Tenda AC8 v1: the part of rtk_switch_init() of its stock eCos firmware
-	 * that follows the loader's init: enable the port LED pins
-	 * (rtk_led_enable_set(LED_GROUP_0/1, ports 0-4) = PARA_LED_IO_EN1), the
-	 * LED mode, the flow-control thresholds and the EMI/SSC registers.  None
-	 * of it touches the RGMII uplink.  Without the LED pin enable the port
-	 * LEDs stay dark.
-	 */
-	if (smi->parent->of_node &&
-	    of_property_read_bool(smi->parent->of_node,
-				  "realtek,rtl8197f-ac8-oem-init")) {
-		static const u16 ac8[][2] = {
-			{0x1b24, 0x1f1f}, {0x1b03, 0x0936},
-			{0x121f, 0x01d6}, {0x1220, 0x01b8}, {0x1221, 0x01cc},
-			{0x1222, 0x01ae}, {0x1223, 0x0302}, {0x1224, 0x02e4},
-			{0x1225, 0x02d0}, {0x1226, 0x02a8},
-			{0x13c3, 0x0000}, {0x13c4, 0x0000},
-			{0x1d53, 0x0001}, {0x1d55, 0x000f}, {0x1d54, 0x05fa},
-			{0x1d52, 0x2473}, {0x1d5a, 0x0001}, {0x1d5c, 0x000f},
-			{0x1d5b, 0x05fa}, {0x1d59, 0x2473},
-		};
-		int k;
-
-		for (k = 0; k < ARRAY_SIZE(ac8); k++)
-			rtl8366_smi_write_reg(smi, ac8[k][0], ac8[k][1]);
-		dev_info(smi->parent,
-			 "applied Tenda AC8 OEM LED/threshold/SSC sequence\n");
-	}
-
-	/*
-	 * RTL8367S (DIR-842): skip the 8367R-VB init-vals + ext-interface
-	 * (RGMII) programming — those registers differ on the 8367S and would
-	 * break the working power-on RGMII CPU uplink (see rtl8367b_is_8367s).
-	 * The L2/VLAN configuration below uses family-common registers and is
-	 * what swconfig needs, so keep it.
-	 */
-	if (!rtl8367b_is_8367s(smi)) {
-		err = rtl8367b_init_regs(smi);
+	/* initialize external interfaces */
+	if (smi->parent->of_node) {
+		err = rtl8367b_extif_init_of(smi, "realtek,extif");
+		if (err)
+			return err;
+	} else {
+		err = rtl8367b_extif_init(smi, 0, pdata->extif0_cfg);
 		if (err)
 			return err;
 
-		/* initialize external interfaces */
-		if (smi->parent->of_node) {
-			err = rtl8367b_extif_init_of(smi, 0, "realtek,extif0");
-			if (err)
-				return err;
-
-			err = rtl8367b_extif_init_of(smi, 1, "realtek,extif1");
-			if (err)
-				return err;
-
-			err = rtl8367b_extif_init_of(smi, 2, "realtek,extif2");
-			if (err)
-				return err;
-		} else {
-			err = rtl8367b_extif_init(smi, 0, pdata->extif0_cfg);
-			if (err)
-				return err;
-
-			err = rtl8367b_extif_init(smi, 1, pdata->extif1_cfg);
-			if (err)
-				return err;
-		}
+		err = rtl8367b_extif_init(smi, 1, pdata->extif1_cfg);
+		if (err)
+			return err;
 	}
 
 	/* set maximum packet length to 1536 bytes */
@@ -1351,45 +993,7 @@ static int rtl8367b_setup(struct rtl8366_smi *smi)
 			RTL8367B_PORT_MISC_CFG_EGRESS_MODE_ORIGINAL <<
 				RTL8367B_PORT_MISC_CFG_EGRESS_MODE_SHIFT);
 
-	/*
-	 * DIR-842 (M6.6 Fork A): force every port's isolation mask to PORTS_ALL so
-	 * the RGMII trunk (port6, the SoC uplink) can forward INTO the jacks.
-	 * rtl8367b_enable_port() only sets isolation=PORTS_ALL for the swconfig-
-	 * configured jack ports (0-4); the trunk/CPU port6's mask is left at a
-	 * restrictive default, so jack->trunk->CPU works but trunk->jack egress is
-	 * DEAD (measured: box->hal vid2 AND box->tiny vid1 both 0%, P4out flat, while
-	 * hal->box is 8/8). That breaks routed WAN<->LAN delivery through the single
-	 * trunk. The 802.1Q VLANs still enforce the real LAN/WAN separation.
-	 */
-	for (i = 0; i < RTL8367B_NUM_PORTS; i++)
-		REG_WR(smi, RTL8367B_PORT_ISOLATION_REG(i), RTL8367B_PORTS_ALL);
-
-	/*
-	 * Hand the panel LEDs back to the switch's own link/activity indication.
-	 *
-	 * ★ The bootloader leaves group 0 at 0x0afe -- 2 bits per port, so ports
-	 * 1/2/3 = mode 3 (force ON) and ports 0/4 = mode 2 (force OFF). On a
-	 * DIR-842 that is three LAN LEDs lit regardless of link with Internet and
-	 * LAN4 dead, which is exactly the "the LEDs are wrong" symptom; nothing in
-	 * this driver ever touched these registers, so whatever the loader left
-	 * simply stayed. Stock papers over it by force-driving every LED from
-	 * software -- its eth_leds_ctrl() writes these same 2-bit fields, mode 3
-	 * for a lit port and mode 2 for a dark one, on every link change.
-	 *
-	 * Mode 0 is hardware indication, verified on hardware: with these cleared,
-	 * a cabled jack blinks with traffic and dark jacks stay dark, with no
-	 * software in the path at all. That is both the smaller change and the
-	 * better behaviour, so clear the force fields instead of replicating
-	 * stock's polling. A board that genuinely wants a forced LED can set its
-	 * own field afterwards.
-	 *
-	 * (DIR-842 jack mapping is reversed: LAN1=port3 .. LAN4=port0,
-	 * Internet=port4. See docs/LEDS.md.)
-	 */
-	for (i = 0; i < RTL8367B_NUM_LED_GROUPS; i++)
-		REG_WR(smi, RTL8367B_LED_FORCE_MODE_REG(i), 0);
-
-	return 0;
+	return rtl8367_ac8_setup(smi);
 }
 
 static int rtl8367b_get_mib_counter(struct rtl8366_smi *smi, int counter,
@@ -1440,45 +1044,83 @@ static int rtl8367b_get_mib_counter(struct rtl8366_smi *smi, int counter,
 }
 
 /*
- * Tenda AC8 trunk tuning (rtl819x /proc/rtl819x_trunk).
- *
- * rtl8367s_ext1_delay(): set the EXT1 (port 6, SoC P0 uplink) RGMII delays in
- * 0x1307 -- tx (bit 3) and rx (bits 2:0); a negative value leaves that field
- * alone. Returns the EXT1 mode (0x1305), delay (0x1307) and force (0x1311)
- * words through any non-NULL pointer.
+ * Helpers of the rtl819x CPU-port driver (built in together with this one).
+ * All return -ENODEV until the switch has been set up.
+ */
+int rtl8367s_cpu_tag_enable(void)
+{
+	struct rtl8366_smi *smi = rtl8367_ac8_smi;
+	u32 v1219 = 0, v121a = 0;
+	int err;
+
+	if (!smi)
+		return -ENODEV;
+	err = rtl8367_ac8_cpu_tag(smi);
+	if (err)
+		return err;
+	rtl8366_smi_read_reg(smi, 0x1219, &v1219);
+	rtl8366_smi_read_reg(smi, 0x121a, &v121a);
+	dev_info(smi->parent, "AC8: CPU tag on, 0x1219=%04x 0x121a=%04x\n",
+		 v1219, v121a);
+	return 0;
+}
+EXPORT_SYMBOL(rtl8367s_cpu_tag_enable);
+
+/* 802.3x pause on EXT1 (0x1311 force register): on != 0 sets TX/RX pause. */
+int rtl8367s_trunk_pause_set(int on)
+{
+	struct rtl8366_smi *smi = rtl8367_ac8_smi;
+	const u32 pause = RTL8367B_DI_FORCE_TXPAUSE | RTL8367B_DI_FORCE_RXPAUSE;
+	u32 old = 0, want;
+	int err;
+
+	if (!smi)
+		return -ENODEV;
+	REG_RD(smi, RTL8367B_DI_FORCE_REG(1), &old);
+	want = on ? (old | pause) : (old & ~pause);
+	if (want != old) {
+		REG_WR(smi, RTL8367B_DI_FORCE_REG(1), want);
+		dev_info(smi->parent, "AC8: EXT1 pause %s (0x1311 %04x -> %04x)\n",
+			 on ? "on" : "off", old, want);
+	}
+	return 0;
+}
+EXPORT_SYMBOL(rtl8367s_trunk_pause_set);
+
+/*
+ * EXT1 (port 6, the SoC P0 uplink) RGMII delays in 0x1307: tx (bit 3) and rx
+ * (bits 2:0); a negative value leaves that field alone.  The values are kept
+ * and re-applied after every chip reset.  Returns the EXT1 mode (0x1305),
+ * delay (0x1307) and force (0x1311) words through any non-NULL pointer.
  */
 int rtl8367s_ext1_delay(int tx, int rx, u32 *dis, u32 *rgmxf, u32 *force)
 {
-	struct rtl8366_smi *smi = g_dir842_smi;
+	struct rtl8366_smi *smi = rtl8367_ac8_smi;
 	u32 v;
 	int err;
 
 	if (!smi)
 		return -ENODEV;
 	if (tx >= 0 || rx >= 0) {
-		err = rtl8366_smi_read_reg(smi, RTL8367B_EXT_RGMXF_REG(1), &v);
-		if (err)
-			return err;
-		if (tx >= 0)
-			v = (v & ~(RTL8367B_EXT_RGMXF_TXDELAY_MASK <<
-				   RTL8367B_EXT_RGMXF_TXDELAY_SHIFT)) |
-			    ((tx & RTL8367B_EXT_RGMXF_TXDELAY_MASK) <<
-			     RTL8367B_EXT_RGMXF_TXDELAY_SHIFT);
-		if (rx >= 0)
+		REG_RD(smi, RTL8367B_EXT_RGMXF_REG(1), &v);
+		if (tx >= 0) {
+			rtl8367_ac8_ext1_tx = tx & 1;
+			v = (v & ~BIT(RTL8367B_EXT_RGMXF_TXDELAY_SHIFT)) |
+			    (rtl8367_ac8_ext1_tx << RTL8367B_EXT_RGMXF_TXDELAY_SHIFT);
+		}
+		if (rx >= 0) {
+			rtl8367_ac8_ext1_rx = rx & RTL8367B_EXT_RGMXF_RXDELAY_MASK;
 			v = (v & ~RTL8367B_EXT_RGMXF_RXDELAY_MASK) |
-			    (rx & RTL8367B_EXT_RGMXF_RXDELAY_MASK);
-		err = rtl8366_smi_write_reg(smi, RTL8367B_EXT_RGMXF_REG(1), v);
-		if (err)
-			return err;
+			    rtl8367_ac8_ext1_rx;
+		}
+		REG_WR(smi, RTL8367B_EXT_RGMXF_REG(1), v);
 	}
-	if (dis && (err = rtl8366_smi_read_reg(smi, RTL8367B_DIS_REG, dis)))
-		return err;
-	if (rgmxf &&
-	    (err = rtl8366_smi_read_reg(smi, RTL8367B_EXT_RGMXF_REG(1), rgmxf)))
-		return err;
-	if (force &&
-	    (err = rtl8366_smi_read_reg(smi, RTL8367B_DI_FORCE_REG(1), force)))
-		return err;
+	if (dis)
+		REG_RD(smi, RTL8367B_DIS_REG, dis);
+	if (rgmxf)
+		REG_RD(smi, RTL8367B_EXT_RGMXF_REG(1), rgmxf);
+	if (force)
+		REG_RD(smi, RTL8367B_DI_FORCE_REG(1), force);
 	return 0;
 }
 EXPORT_SYMBOL(rtl8367s_ext1_delay);
@@ -1486,7 +1128,7 @@ EXPORT_SYMBOL(rtl8367s_ext1_delay);
 /* Sum of the named MIB counters of one port (NULL-terminated name list). */
 int rtl8367s_mib_sum(int port, const char *const *names, u64 *sum)
 {
-	struct rtl8366_smi *smi = g_dir842_smi;
+	struct rtl8366_smi *smi = rtl8367_ac8_smi;
 	unsigned long long c;
 	int i, err;
 
@@ -1534,8 +1176,12 @@ static int rtl8367b_get_vlan_4k(struct rtl8366_smi *smi, u32 vid,
 			 RTL8367B_TA_VLAN0_MEMBER_MASK;
 	vlan4k->untag = (data[0] >> RTL8367B_TA_VLAN0_UNTAG_SHIFT) &
 			RTL8367B_TA_VLAN0_UNTAG_MASK;
-	vlan4k->fid = (data[1] >> RTL8367B_TA_VLAN1_FID_SHIFT) &
-		      RTL8367B_TA_VLAN1_FID_MASK;
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) /* Family D */
+		vlan4k->fid = (data[1] >> RTL8367D_TA_VLAN1_FID_SHIFT) &
+				RTL8367D_TA_VLAN1_FID_MASK;
+	else
+		vlan4k->fid = (data[1] >> RTL8367B_TA_VLAN1_FID_SHIFT) &
+				RTL8367B_TA_VLAN1_FID_MASK;
 
 	return 0;
 }
@@ -1550,7 +1196,7 @@ static int rtl8367b_set_vlan_4k(struct rtl8366_smi *smi,
 	if (vlan4k->vid >= RTL8367B_NUM_VIDS ||
 	    vlan4k->member > RTL8367B_TA_VLAN0_MEMBER_MASK ||
 	    vlan4k->untag > RTL8367B_UNTAG_MASK ||
-	    vlan4k->fid > RTL8367B_FIDMAX)
+	    vlan4k->fid > ((smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) ? RTL8367D_FIDMAX : RTL8367B_FIDMAX))
 		return -EINVAL;
 
 	memset(data, 0, sizeof(data));
@@ -1559,15 +1205,24 @@ static int rtl8367b_set_vlan_4k(struct rtl8366_smi *smi,
 		  RTL8367B_TA_VLAN0_MEMBER_SHIFT;
 	data[0] |= (vlan4k->untag & RTL8367B_TA_VLAN0_UNTAG_MASK) <<
 		   RTL8367B_TA_VLAN0_UNTAG_SHIFT;
-	data[1] = (vlan4k->fid & RTL8367B_TA_VLAN1_FID_MASK) <<
-		  RTL8367B_TA_VLAN1_FID_SHIFT;
+
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) /* Family D */
+		data[1] = ((vlan4k->fid & RTL8367D_TA_VLAN1_FID_MASK) <<
+			   RTL8367D_TA_VLAN1_FID_SHIFT) | 12; /* ivl_svl - BIT(3), svlan_chek_ivl_svl - BIT(2) */
+	else
+		data[1] = (vlan4k->fid & RTL8367B_TA_VLAN1_FID_MASK) <<
+			   RTL8367B_TA_VLAN1_FID_SHIFT;
 
 	for (i = 0; i < ARRAY_SIZE(data); i++)
 		REG_WR(smi, RTL8367B_TA_WRDATA_REG(i), data[i]);
 
 	/* write VID */
-	REG_WR(smi, RTL8367B_TA_ADDR_REG,
-	       vlan4k->vid & RTL8367B_TA_VLAN_VID_MASK);
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) /* Family D */
+		REG_WR(smi, RTL8367B_TA_ADDR_REG,
+		       vlan4k->vid & RTL8367D_TA_VLAN_VID_MASK);
+	else
+		REG_WR(smi, RTL8367B_TA_ADDR_REG,
+		       vlan4k->vid & RTL8367B_TA_VLAN_VID_MASK);
 
 	/* write table access control word */
 	REG_WR(smi, RTL8367B_TA_CTRL_REG, RTL8367B_TA_CTRL_CVLAN_WRITE);
@@ -1586,6 +1241,14 @@ static int rtl8367b_get_vlan_mc(struct rtl8366_smi *smi, u32 index,
 
 	if (index >= RTL8367B_NUM_VLANS)
 		return -EINVAL;
+
+	if (smi->emu_vlanmc) { /* use vlan mc emulation */
+		vlanmc->vid = smi->emu_vlanmc[index].vid;
+		vlanmc->member = smi->emu_vlanmc[index].member;
+		vlanmc->fid = smi->emu_vlanmc[index].fid;
+		vlanmc->untag = smi->emu_vlanmc[index].untag;
+		return 0;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(data); i++)
 		REG_RD(smi, RTL8367B_VLAN_MC_BASE(index) + i, &data[i]);
@@ -1612,8 +1275,16 @@ static int rtl8367b_set_vlan_mc(struct rtl8366_smi *smi, u32 index,
 	    vlanmc->priority > RTL8367B_PRIORITYMAX ||
 	    vlanmc->member > RTL8367B_VLAN_MC0_MEMBER_MASK ||
 	    vlanmc->untag > RTL8367B_UNTAG_MASK ||
-	    vlanmc->fid > RTL8367B_FIDMAX)
+	    vlanmc->fid > ((smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) ? RTL8367D_FIDMAX : RTL8367B_FIDMAX))
 		return -EINVAL;
+
+	if (smi->emu_vlanmc) { /* use vlanmc emulation */
+		smi->emu_vlanmc[index].vid = vlanmc->vid;
+		smi->emu_vlanmc[index].member = vlanmc->member;
+		smi->emu_vlanmc[index].fid = vlanmc->fid;
+		smi->emu_vlanmc[index].untag = vlanmc->untag;
+		return 0;
+	}
 
 	data[0] = (vlanmc->member & RTL8367B_VLAN_MC0_MEMBER_MASK) <<
 		  RTL8367B_VLAN_MC0_MEMBER_SHIFT;
@@ -1637,10 +1308,41 @@ static int rtl8367b_get_mc_index(struct rtl8366_smi *smi, int port, int *val)
 	if (port >= RTL8367B_NUM_PORTS)
 		return -EINVAL;
 
-	REG_RD(smi, RTL8367B_VLAN_PVID_CTRL_REG(port), &data);
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) { /* Family D */
+		int i;
+		struct rtl8366_vlan_mc vlanmc;
 
-	*val = (data >> RTL8367B_VLAN_PVID_CTRL_SHIFT(port)) &
-	       RTL8367B_VLAN_PVID_CTRL_MASK;
+		err = rtl8366_smi_read_reg(smi, RTL8367D_VLAN_PVID_CTRL_REG(port), &data);
+
+		if (err) {
+			dev_err(smi->parent, "read pvid register 0x%04x fail", RTL8367D_VLAN_PVID_CTRL_REG(port));
+			return err;
+		}
+
+		data &= RTL8367D_VLAN_PVID_CTRL_MASK;
+		for (i = 0; i < smi->num_vlan_mc; i++) {
+			err = rtl8367b_get_vlan_mc(smi, i, &vlanmc);
+
+			if (err) {
+				dev_err(smi->parent, "get vlan mc index %d fail", i);
+				return err;
+			}
+
+			if (data == vlanmc.vid) break;
+		}
+
+		if (i < smi->num_vlan_mc) {
+			*val = i;
+		} else {
+			dev_err(smi->parent, "vlan mc index for pvid %d not found", data);
+			return -EINVAL;
+		}
+	} else {
+		REG_RD(smi, RTL8367B_VLAN_PVID_CTRL_REG(port), &data);
+
+		*val = (data >> RTL8367B_VLAN_PVID_CTRL_SHIFT(port)) &
+			RTL8367B_VLAN_PVID_CTRL_MASK;
+	}
 
 	return 0;
 }
@@ -1650,7 +1352,28 @@ static int rtl8367b_set_mc_index(struct rtl8366_smi *smi, int port, int index)
 	if (port >= RTL8367B_NUM_PORTS || index >= RTL8367B_NUM_VLANS)
 		return -EINVAL;
 
-	return rtl8366_smi_rmwr(smi, RTL8367B_VLAN_PVID_CTRL_REG(port),
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) { /* Family D */
+		int pvid, err;
+		struct rtl8366_vlan_mc vlanmc;
+
+		err = rtl8367b_get_vlan_mc(smi, index, &vlanmc);
+
+		if (err) {
+			dev_err(smi->parent, "get vlan mc index %d fail", index);
+			return err;
+		}
+
+		pvid = vlanmc.vid & RTL8367D_VLAN_PVID_CTRL_MASK;
+		err = rtl8366_smi_write_reg(smi, RTL8367D_VLAN_PVID_CTRL_REG(port), pvid);
+
+		if (err) {
+			dev_err(smi->parent, "set port %d pvid %d fail", port, pvid);
+			return err;
+		}
+
+		return 0;
+	} else
+		return rtl8366_smi_rmwr(smi, RTL8367B_VLAN_PVID_CTRL_REG(port),
 				RTL8367B_VLAN_PVID_CTRL_MASK <<
 					RTL8367B_VLAN_PVID_CTRL_SHIFT(port),
 				(index & RTL8367B_VLAN_PVID_CTRL_MASK) <<
@@ -1713,7 +1436,10 @@ static int rtl8367b_sw_get_port_link(struct switch_dev *dev,
 	if (port >= RTL8367B_NUM_PORTS)
 		return -EINVAL;
 
-	rtl8366_smi_read_reg(smi, RTL8367B_PORT_STATUS_REG(port), &data);
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) /* Family D */
+		rtl8366_smi_read_reg(smi, RTL8367D_PORT_STATUS_REG(port), &data);
+	else
+		rtl8366_smi_read_reg(smi, RTL8367B_PORT_STATUS_REG(port), &data);
 
 	link->link = !!(data & RTL8367B_PORT_STATUS_LINK);
 	if (!link->link)
@@ -1724,15 +1450,18 @@ static int rtl8367b_sw_get_port_link(struct switch_dev *dev,
 	link->tx_flow = !!(data & RTL8367B_PORT_STATUS_TXPAUSE);
 	link->aneg = !!(data & RTL8367B_PORT_STATUS_NWAY);
 
-	speed = (data & RTL8367B_PORT_STATUS_SPEED_MASK);
+	if (smi->rtl8367b_chip >= RTL8367B_CHIP_RTL8367S_VB) /* Family D */
+		speed = (data & RTL8367B_PORT_STATUS_SPEED_MASK) | ((data & RTL8367D_PORT_STATUS_SPEED1_MASK) >> RTL8367D_PORT_STATUS_SPEED1_SHIFT);
+	else
+		speed = (data & RTL8367B_PORT_STATUS_SPEED_MASK);
 	switch (speed) {
-	case 0:
+	case RTL8367B_PORT_STATUS_SPEED_10:
 		link->speed = SWITCH_PORT_SPEED_10;
 		break;
-	case 1:
+	case RTL8367B_PORT_STATUS_SPEED_100:
 		link->speed = SWITCH_PORT_SPEED_100;
 		break;
-	case 2:
+	case RTL8367B_PORT_STATUS_SPEED_1000:
 		link->speed = SWITCH_PORT_SPEED_1000;
 		break;
 	default:
@@ -1946,13 +1675,14 @@ static int rtl8367b_mii_write(struct mii_bus *bus, int addr, int reg, u16 val)
 
 static int rtl8367b_detect(struct rtl8366_smi *smi)
 {
-	const char *chip_name;
+	const char *chip_name = NULL;
 	u32 chip_num;
 	u32 chip_ver;
-	u32 chip_mode;
 	int ret;
 
-	/* TODO: improve chip detection */
+	smi->emu_vlanmc = NULL;
+	smi->rtl8367b_chip = RTL8367B_CHIP_UNKNOWN;
+
 	rtl8366_smi_write_reg(smi, RTL8367B_RTL_MAGIC_ID_REG,
 			      RTL8367B_RTL_MAGIC_ID_VAL);
 
@@ -1970,38 +1700,42 @@ static int rtl8367b_detect(struct rtl8366_smi *smi)
 		return ret;
 	}
 
-	ret = rtl8366_smi_read_reg(smi, RTL8367B_CHIP_MODE_REG, &chip_mode);
-	if (ret) {
-		dev_err(smi->parent, "unable to read %s register\n",
-			"chip mode");
-		return ret;
-	}
-
-	/*
-	 * DIR-842 R1: the external switch is an RTL8367S (8367C-family), which
-	 * reports chip_number 0x6367 / chip_ver 0x0020 — not the 8367R-VB's
-	 * 0x1010. Its bit-banged SMI register + VLAN-table interface is
-	 * compatible with these 8367B ops (init_regs derives rlvid 0 ->
-	 * rtl8367r_vb_initvals_0). Accept it so swconfig can drive the WAN/LAN
-	 * VLAN split (M6.2). Confirmed on hardware: the id regs read cleanly.
-	 */
-	if (chip_num == 0x6367 && chip_ver == 0x0020) {
-		chip_name = "8367S";
-	} else switch (chip_ver) {
+	switch (chip_ver) {
+	case 0x0010:
+		if (chip_num == 0x6642) {
+			chip_name = "8367S-VB";
+			smi->rtl8367b_chip = RTL8367B_CHIP_RTL8367S_VB;
+		}
+		break;
+	case 0x0020:
+		if (chip_num == 0x6367) {
+			chip_name = "8367RB-VB";
+			smi->rtl8367b_chip = RTL8367B_CHIP_RTL8367RB_VB;
+		}
+		break;
+	case 0x00A0:
+		if (chip_num == 0x6367) {
+			chip_name = "8367S";
+			smi->rtl8367b_chip = RTL8367B_CHIP_RTL8367S;
+		}
+		break;
 	case 0x1000:
 		chip_name = "8367RB";
+		smi->rtl8367b_chip = RTL8367B_CHIP_RTL8367RB;
 		break;
 	case 0x1010:
 		chip_name = "8367R-VB";
-		break;
-	default:
+		smi->rtl8367b_chip = RTL8367B_CHIP_RTL8367R_VB;
+	}
+
+	if (!chip_name) {
 		dev_err(smi->parent,
-			"unknown chip num:%04x ver:%04x, mode:%04x\n",
-			chip_num, chip_ver, chip_mode);
+			"unknown chip (num:%04x ver:%04x)\n",
+			chip_num, chip_ver);
 		return -ENODEV;
 	}
 
-	dev_info(smi->parent, "RTL%s chip found\n", chip_name);
+	dev_info(smi->parent, "RTL%s chip found (num:%04x ver:%04x)\n", chip_name, chip_num, chip_ver);
 
 	return 0;
 }
@@ -2041,9 +1775,7 @@ static int  rtl8367b_probe(struct platform_device *pdev)
 	smi->cmd_write = 0xb8;
 	smi->ops = &rtl8367b_smi_ops;
 	smi->num_ports = RTL8367B_NUM_PORTS;
-	if (of_property_read_u32(pdev->dev.of_node, "cpu_port", &smi->cpu_port)
-	    || smi->cpu_port >= smi->num_ports)
-		smi->cpu_port = RTL8367B_CPU_PORT_NUM;
+	smi->cpu_port = UINT_MAX; /* not defined yet */
 	smi->num_vlan_mc = RTL8367B_NUM_VLANS;
 	smi->mib_counters = rtl8367b_mib_counters;
 	smi->num_mib_counters = ARRAY_SIZE(rtl8367b_mib_counters);
@@ -2064,6 +1796,8 @@ static int  rtl8367b_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	rtl8366_smi_cleanup(smi);
  err_free_smi:
+	if (smi->emu_vlanmc)
+		kfree(smi->emu_vlanmc);
 	kfree(smi);
 	return err;
 }
@@ -2073,6 +1807,8 @@ static int rtl8367b_remove(struct platform_device *pdev)
 	struct rtl8366_smi *smi = platform_get_drvdata(pdev);
 
 	if (smi) {
+		if (rtl8367_ac8_smi == smi)
+			rtl8367_ac8_smi = NULL;
 		rtl8367b_switch_cleanup(smi);
 		platform_set_drvdata(pdev, NULL);
 		rtl8366_smi_cleanup(smi);
@@ -2101,7 +1837,6 @@ MODULE_DEVICE_TABLE(of, rtl8367b_match);
 static struct platform_driver rtl8367b_driver = {
 	.driver = {
 		.name		= RTL8367B_DRIVER_NAME,
-		.owner		= THIS_MODULE,
 #ifdef CONFIG_OF
 		.of_match_table = of_match_ptr(rtl8367b_match),
 #endif

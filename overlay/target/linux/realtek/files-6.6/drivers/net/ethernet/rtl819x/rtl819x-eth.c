@@ -1380,7 +1380,7 @@ static int rtl819x_eth_poll(struct napi_struct *napi, int budget)
 					   pc, rx_done, dev->stats.rx_packets,
 					   REG32(CPUIISR), used, runout);
 		else if (beat)
-			pr_err("rtl819x DP: poll#%lu rx_done=%d rx_pkts=%lu CPUIISR=%08x USEDDSC=%u runout=%d\n",
+			pr_info("rtl819x DP: poll#%lu rx_done=%d rx_pkts=%lu CPUIISR=%08x USEDDSC=%u runout=%d\n",
 			       pc, rx_done, dev->stats.rx_packets, REG32(CPUIISR),
 			       used, runout);
 	}
@@ -1562,9 +1562,28 @@ static const char *const trunk_sw_rx_bad[] = {
 static const char *const trunk_sw_tx_all[] = {
 	"ifOutUcastPkts", "ifOutMulticastPkts", "ifOutBroadcastPkts", NULL
 };
+static const char *const trunk_sw_rx_drop[] = {
+	"dot1dTpPortInDiscards", "etherStatsDropEvents", NULL
+};
+
+/* Frames the switch sent out of the jacks (ports 0-4). */
+static int rtl819x_trunk_jacks_out(u64 *sum)
+{
+	u64 v;
+	int p, err;
+
+	*sum = 0;
+	for (p = 0; p <= 4; p++) {
+		err = rtl8367s_mib_sum(p, trunk_sw_tx_all, &v);
+		if (err)
+			return err;
+		*sum += v;
+	}
+	return 0;
+}
 
 static struct net_device *rtl819x_trunk_dev;
-static char rtl819x_trunk_last[192];
+static char rtl819x_trunk_last[256];
 
 static void rtl819x_trunk_apply_soc(void)
 {
@@ -1581,10 +1600,13 @@ static void rtl819x_trunk_apply_soc(void)
 static void rtl819x_trunk_txtest(struct net_device *dev, int n)
 {
 	u64 good0 = 0, bad0 = 0, good1 = 0, bad1 = 0;
+	u64 drop0 = 0, drop1 = 0, out0 = 0, out1 = 0;
 	int i, j, sent = 0, err;
 
 	err = rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_good, &good0);
 	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_bad, &bad0);
+	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_drop, &drop0);
+	err = err ?: rtl819x_trunk_jacks_out(&out0);
 	for (i = 0; i < n; i++) {
 		unsigned int len = (i & 1) ? ETH_FRAME_LEN : ETH_ZLEN;
 		struct sk_buff *skb = netdev_alloc_skb(dev, len);
@@ -1611,14 +1633,17 @@ static void rtl819x_trunk_txtest(struct net_device *dev, int n)
 	msleep(300);
 	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_good, &good1);
 	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_bad, &bad1);
+	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_drop, &drop1);
+	err = err ?: rtl819x_trunk_jacks_out(&out1);
 	if (err)
 		snprintf(rtl819x_trunk_last, sizeof(rtl819x_trunk_last),
 			 "txtest: sent %d of %d, switch counters unreadable (%d)\n",
 			 sent, n, err);
 	else
 		snprintf(rtl819x_trunk_last, sizeof(rtl819x_trunk_last),
-			 "txtest: sent %d of %d, switch port %d received good %llu errored %llu\n",
-			 sent, n, RTL819X_TRUNK_SW_PORT, good1 - good0, bad1 - bad0);
+			 "txtest: sent %d of %d, switch port %d received good %llu errored %llu dropped %llu, jacks sent %llu\n",
+			 sent, n, RTL819X_TRUNK_SW_PORT, good1 - good0,
+			 bad1 - bad0, drop1 - drop0, out1 - out0);
 	pr_info("rtl819x %s", rtl819x_trunk_last);
 }
 
