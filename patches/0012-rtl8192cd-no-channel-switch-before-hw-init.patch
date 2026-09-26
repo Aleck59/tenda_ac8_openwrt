@@ -1,0 +1,48 @@
+Subject: [PATCH] rtl8192cd: no channel switch before the hardware is initialized
+
+hostapd stopping on a radio whose interface never came up sent its
+deauthentication frames through mgmt_tx; the driver switched the channel
+for them, and config_phydm_switch_bandwidth_8812f() dereferenced the
+PHYDM context that ODM_software_init() only sets up in rtl8192cd_init_hw():
+
+  epc: phy_query_bb_reg+0x0  BadVA 0x890  Comm: hostapd
+  config_phydm_read_rf_reg_8812f <- config_phydm_switch_bandwidth_8812f
+  <- SwBWMode <- cfg80211 -> kernel panic on reboot
+
+SwBWMode()/SwChnl() now return while PHYDM is not attached; the channel
+kept in the MIB is programmed by init_hw.
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_hw.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_hw.c
+@@ -8770,6 +8770,18 @@
+         return;
+     }
+ 
++#ifdef USE_OUT_SRC
++	/*
++	 * cfg80211 (hostapd mgmt_tx, set_channel, CAC) can ask for a channel
++	 * before rtl8192cd_init_hw() ran on open or after the radio failed to
++	 * come up: PHYDM is not attached then (dm->priv == NULL) and its
++	 * register helpers dereference it.  The channel in the MIB is applied
++	 * by init_hw.
++	 */
++	if (IS_OUTSRC_CHIP(priv) && !priv->pshare->_dmODM.priv)
++		return;
++#endif
++
+ #if defined(CONFIG_RTL_8812_SUPPORT) || defined(CONFIG_WLAN_HAL_8822BE)|| defined(CONFIG_WLAN_HAL_8881A)|| defined(CONFIG_WLAN_HAL_8814AE)
+ 		if ((GET_CHIP_VER(priv) == VERSION_8812E)||(GET_CHIP_VER(priv) == VERSION_8822B)||(GET_CHIP_VER(priv) == VERSION_8881A) || (GET_CHIP_VER(priv) == VERSION_8814A)) {	
+ 			if ((channel < 36) && (priv->pmib->dot11RFEntry.phyBandSelect==PHY_BAND_5G)) {
+@@ -22181,6 +22193,12 @@
+ 	unsigned int eRFPath, curMaxRFPath, val;
+ 	priv->pshare->CurrentChannelBW = bandwidth; 
+ 
++#ifdef USE_OUT_SRC
++	/* Not before rtl8192cd_init_hw() attached PHYDM, see SwChnl(). */
++	if (IS_OUTSRC_CHIP(priv) && !priv->pshare->_dmODM.priv)
++		return;
++#endif
++
+ #if defined(CONFIG_RTL_8812_SUPPORT)
+ 	if (GET_CHIP_VER(priv) == VERSION_8812E) {
+ 		priv->pshare->No_RF_Write = 0;

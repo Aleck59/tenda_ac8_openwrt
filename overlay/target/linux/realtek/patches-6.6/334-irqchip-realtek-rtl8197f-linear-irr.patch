@@ -1,0 +1,67 @@
+From: Tenda AC8 OpenWrt port
+Subject: irqchip/realtek: linear IRR banks on the RTL8197F
+
+The driver writes the routing nibble of input N into IRR(3 - N/8), the
+RTL83xx layout.  The RTL8197F numbers its IRR banks linearly: the boot
+code of the Tenda AC8 stock firmware writes IRR0 = 0x20000000 (input 7),
+IRR1 = 0x20000020 (inputs 9, 15), IRR2 = 0x00200000 (input 21, PCIe) and
+IRR3 = 0x00200000 (input 29, WLAN), the Realtek BSP does the same.  With
+the RTL83xx layout request_irq() succeeds but PCIe/WLAN/switch core
+interrupts are routed from the wrong inputs and never reach the CPU.
+
+Use the linear layout for realtek,rtl8197f-intc only.  The same fix is in
+tobyw121/Openwrt_RTL (MW5_Stable, 316-irqchip-realtek-rtl8197f-fix-irr-
+bank-order.patch).
+---
+--- a/drivers/irqchip/irq-realtek-rtl.c
++++ b/drivers/irqchip/irq-realtek-rtl.c
+@@ -31,6 +31,7 @@
+ static u32 realtek_ictl_unmask[NR_CPUS];
+ static void __iomem *realtek_ictl_base[NR_CPUS];
+ static cpumask_t realtek_ictl_cpu_configurable;
++static bool realtek_ictl_linear_irr;
+ 
+ struct realtek_ictl_output {
+ 	/* IRQ controller data */
+@@ -68,14 +69,29 @@
+ #define IRR_OFFSET(idx)		(4 * (3 - (idx * 4) / 32))
+ #define IRR_SHIFT(idx)		((idx * 4) % 32)
+ 
++/*
++ * The RTL8197F numbers its IRR banks the other way round: inputs 0..7 are
++ * in IRR0, 8..15 in IRR1, 16..23 in IRR2 and 24..31 in IRR3.  Its boot code
++ * (Tenda AC8 stock firmware, Realtek BSP) writes UART0/timer input 7 into
++ * IRR0 and PCIe 21/WLAN 29 into IRR2/IRR3.  With the RTL83xx layout
++ * request_irq() succeeds but the input is never routed to the CPU.
++ */
++static inline unsigned int irr_offset(int idx)
++{
++	if (realtek_ictl_linear_irr)
++		return 4 * (idx / 8);
++
++	return IRR_OFFSET(idx);
++}
++
+ static inline u32 read_irr(void __iomem *irr0, int idx)
+ {
+-	return (readl(irr0 + IRR_OFFSET(idx)) >> IRR_SHIFT(idx)) & 0xf;
++	return (readl(irr0 + irr_offset(idx)) >> IRR_SHIFT(idx)) & 0xf;
+ }
+ 
+ static inline void write_irr(void __iomem *irr0, int idx, u32 value)
+ {
+-	unsigned int offset = IRR_OFFSET(idx);
++	unsigned int offset = irr_offset(idx);
+ 	unsigned int shift = IRR_SHIFT(idx);
+ 	u32 irr;
+ 
+@@ -316,6 +332,9 @@
+ 
+ 	cpumask_clear(&realtek_ictl_cpu_configurable);
+ 
++	realtek_ictl_linear_irr =
++		of_device_is_compatible(node, "realtek,rtl8197f-intc");
++
+ 	for (cpu = 0; cpu < NR_CPUS; cpu++) {
+ 		realtek_ictl_base[cpu] = of_iomap(node, cpu);
+ 		if (realtek_ictl_base[cpu]) {
