@@ -1,0 +1,232 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# ac8-trunk: check and tune the RGMII link between the RTL8197F (SoC port P0)
+# and the RTL8367 switch (port 6) of the Tenda AC8 v1 at run time.
+#
+# Both ends have their own RGMII delays.  Each direction depends on one pair:
+#
+#   TX  router -> switch   SoC TX delay + CF_SEL_RGTXC, switch RX delay
+#   RX  switch -> router   switch TX delay, SoC RX delay
+#
+# TX is measured without a PC: the driver sends test frames and the switch
+# counts them on port 6 (good or with CRC/symbol errors).  RX needs traffic
+# from a PC on a LAN jack: give the PC the address 192.168.1.2/24 and let it
+# ping 192.168.1.1 all the time (Windows: ping -t 192.168.1.1).
+#
+# Everything goes through /proc/rtl819x_trunk.  Nothing is written to flash
+# unless you run "ac8-trunk save".
+
+set -u
+
+PROC=/proc/rtl819x_trunk
+CONF=/etc/ac8-trunk.conf
+LOG=/tmp/ac8-trunk.log
+
+# Most likely values first (stock AC8: SoC TX 0 + RGTXC 3, RX 7; switch tx 0 rx 2).
+SOC_TX_ORDER="0:3 1:0 1:3 0:0 0:1 0:2 1:1 1:2"
+SW_RX_ORDER="2 3 1 4 0 5 6 7"
+SOC_RX_ORDER="7 6 5 4 3 2 1 0"
+SW_TX_ORDER="0 1"
+
+say() {
+	echo "$*" | tee -a "$LOG"
+}
+
+die() {
+	echo "ERROR: $*" >&2
+	exit 1
+}
+
+usage() {
+	cat <<'USAGE'
+Usage: ac8-trunk [command]
+
+  (none)             show both ends of the trunk and the last test
+  test               check both directions with the current values
+  sweep              search working delays (TX first, then RX; ~3 minutes)
+  soc TX RX [RGTXC]  set the SoC delays (TX 0-1, RX 0-7, RGTXC 0-3)
+  sw TX RX           set the switch EXT1 delays (TX 0-1, RX 0-7)
+  save               keep the current values across reboots
+  reset              forget the saved values (firmware defaults after reboot)
+
+For "test" and "sweep" connect a PC to a LAN jack, set its address to
+192.168.1.2/24 and run "ping -t 192.168.1.1" on it (Linux: ping 192.168.1.1).
+USAGE
+}
+
+field() {
+	# field <line prefix> <key>: value of key=value in that line of $PROC
+	sed -n "s/^$1:.*[ ]$2=\([0-9a-fx]*\).*/\1/p" "$PROC" | head -n1
+}
+
+wr() {
+	echo "$*" > "$PROC" 2>/dev/null
+}
+
+last() {
+	sed -n 's/^last //p' "$PROC"
+}
+
+cur_soc() {
+	echo "$(field soc-config tx_delay) $(field soc-config rx_delay) $(field soc-config rgtxc)"
+}
+
+cur_sw() {
+	echo "$(field sw tx_delay) $(field sw rx_delay)"
+}
+
+# txtest: prints "good errored"
+txtest() {
+	wr "txtest ${1:-100}" || { echo "0 -1"; return; }
+	last | sed -n 's/.*received good \([0-9]*\) errored \([0-9]*\).*/\1 \2/p'
+}
+
+# rxtest: prints "switch_sent eth0_received"
+rxtest() {
+	wr "rxtest ${1:-3}" || { echo "0 0"; return; }
+	last | sed -n 's/.*sent \([0-9]*\), eth0 received \([0-9]*\).*/\1 \2/p'
+}
+
+tx_ok() {
+	# tx_ok <n>: all n test frames arrived at the switch without errors
+	set -- "$1" $(txtest "$1")
+	[ "${2:-0}" -ge "$1" ] && [ "${3:--1}" -eq 0 ]
+}
+
+rx_verdict() {
+	set -- $(rxtest "${1:-3}")
+	if [ "${1:-0}" -eq 0 ]; then
+		echo "no traffic from the PC (switch sent nothing to the router)"
+		return 2
+	fi
+	# the router should receive at least 80% of what the switch sent it
+	if [ $(( ${2:-0} * 10 )) -ge $(( ${1} * 8 )) ]; then
+		echo "ok (switch sent $1, router received $2)"
+		return 0
+	fi
+	echo "FAIL (switch sent $1, router received $2)"
+	return 1
+}
+
+do_test() {
+	local n=200 v
+	say "== $(date) ac8-trunk test"
+	say "$(cat "$PROC")"
+	set -- $(txtest $n)
+	if [ "${1:-0}" -ge $n ] && [ "${2:--1}" -eq 0 ]; then
+		say "TX router -> switch: ok ($1 of $n frames, no errors)"
+	else
+		say "TX router -> switch: FAIL (sent $n, switch received ${1:-?} good, ${2:-?} with errors)"
+	fi
+	v=$(rx_verdict 5)
+	say "RX switch -> router: $v"
+}
+
+do_sweep() {
+	local soc_rx sw_tx soc0 sw0 pair tx rgtxc rx good="" s best="" v traffic
+	grep -q '^eth0: up' "$PROC" || die "eth0 is down (ifup lan first)"
+	soc0=$(cur_soc)
+	sw0=$(cur_sw)
+	set -- $soc0; soc_rx=$2
+	set -- $sw0; sw_tx=$1
+	say "== $(date) ac8-trunk sweep, start: soc $soc0 / sw $sw0"
+
+	say "-- TX router -> switch (SoC TX:RGTXC x switch RX)"
+	for pair in $SOC_TX_ORDER; do
+		tx=${pair%:*}; rgtxc=${pair#*:}
+		wr "soc $tx $soc_rx $rgtxc" || die "cannot set the SoC delays"
+		s=""
+		for rx in $SW_RX_ORDER; do
+			wr "sw $sw_tx $rx" || die "cannot set the switch delays"
+			sleep 1
+			if tx_ok 100; then
+				s="$s $rx"
+			fi
+		done
+		say "   soc tx $tx rgtxc $rgtxc: switch rx ok:${s:- none}"
+		[ -n "$s" ] && good="$good $tx:$rgtxc:$(echo $s | tr ' ' ',')"
+	done
+	if [ -z "$good" ]; then
+		say "No working TX combination.  Restoring soc $soc0 / sw $sw0."
+		wr "soc $soc0"; wr "sw $sw0"
+		return 1
+	fi
+	# prefer the SoC setting with the widest switch window, its middle value
+	best=$(for g in $good; do
+		w=${g##*:}
+		echo "$(echo "$w" | tr ',' '\n' | wc -l) $g"
+	done | awk '$1 > m { m = $1; b = $2 } END { print b }')
+	tx=$(echo "$best" | cut -d: -f1); rgtxc=$(echo "$best" | cut -d: -f2)
+	s=$(echo "$best" | cut -d: -f3 | tr ',' '\n' | sort -n)
+	rx=$(echo "$s" | sed -n "$(( ($(echo "$s" | wc -l) + 1) / 2 ))p")
+	wr "soc $tx $soc_rx $rgtxc"; wr "sw $sw_tx $rx"
+	say "TX: using soc tx $tx rgtxc $rgtxc, switch rx $rx"
+
+	say "-- RX switch -> router (switch TX x SoC RX; needs the PC ping)"
+	s=""
+	traffic=0
+	for sw_tx in $SW_TX_ORDER; do
+		wr "sw $sw_tx $rx"
+		for soc_rx in $SOC_RX_ORDER; do
+			wr "soc $tx $soc_rx $rgtxc"
+			sleep 1
+			v=$(rx_verdict 3)
+			case $? in
+			0) s="$s $sw_tx:$soc_rx"; traffic=1 ;;
+			1) traffic=1 ;;
+			esac
+			say "   sw tx $sw_tx soc rx $soc_rx: $v"
+		done
+	done
+	if [ -z "$s" ]; then
+		set -- $soc0
+		[ $traffic = 1 ] ||
+			say "The PC sent nothing: is it pinging 192.168.1.1 from 192.168.1.2?"
+		say "No working RX combination.  Keeping TX, restoring SoC RX $2 / switch TX ${sw0%% *}."
+		wr "soc $tx $2 $rgtxc"; wr "sw ${sw0%% *} $rx"
+		return 1
+	fi
+	# middle of the SoC RX window of the first switch TX value that works
+	sw_tx=$(echo $s | tr ' ' '\n' | head -n1 | cut -d: -f1)
+	v=$(echo $s | tr ' ' '\n' | sed -n "s/^$sw_tx://p" | sort -n)
+	soc_rx=$(echo "$v" | sed -n "$(( ($(echo "$v" | wc -l) + 1) / 2 ))p")
+	wr "sw $sw_tx $rx"; wr "soc $tx $soc_rx $rgtxc"
+	say "RX: using switch tx $sw_tx, soc rx $soc_rx"
+	say "Result: soc $tx $soc_rx $rgtxc / sw $sw_tx $rx"
+	say "Run \"ac8-trunk test\", then \"ac8-trunk save\" to keep it.  Log: $LOG"
+}
+
+[ -w "$PROC" ] || die "$PROC not found (rtl819x Ethernet driver not loaded)"
+
+case "${1:-}" in
+"")
+	cat "$PROC"
+	[ -f "$CONF" ] && echo "saved ($CONF): $(tr '\n' ' ' < "$CONF")"
+	;;
+test)	do_test ;;
+sweep)	do_sweep ;;
+soc)
+	shift
+	wr "soc $*" || die "invalid values: soc TX(0-1) RX(0-7) [RGTXC(0-3)]"
+	grep '^soc' "$PROC"
+	;;
+sw)
+	shift
+	wr "sw $*" || die "invalid values: sw TX(0-1) RX(0-7)"
+	grep '^sw' "$PROC"
+	;;
+save)
+	{
+		echo "soc $(cur_soc)"
+		echo "sw $(cur_sw)"
+	} > "$CONF"
+	echo "saved to $CONF: $(tr '\n' ' ' < "$CONF")"
+	;;
+reset)
+	rm -f "$CONF"
+	echo "saved values removed; firmware defaults after the next reboot"
+	;;
+-h|--help|help) usage ;;
+*)	usage; exit 1 ;;
+esac

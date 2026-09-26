@@ -23,6 +23,9 @@
 #include <linux/skbuff.h>
 #include <linux/if_vlan.h>	/* __vlan_hwaccel_put_tag / skb_vlan_tag_* (M6.2) */
 #include <linux/delay.h>	/* msleep/udelay: M7 fabric-reset sequencing */
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/uaccess.h>
 #include <asm/mipsregs.h>	/* clear_c0_status / set_c0_status / STATUSF_IP4 */
 
 #include "rtl819x_regs.h"
@@ -336,7 +339,7 @@ static void rtl819x_fabric_restore(void)
  * datapath fully quiesced (napi disabled, rx_timer stopped, TX disabled, HAL
  * mutex held, CPU engine down): between the clock gate and ungate NOTHING may
  * touch 0xBB80xxxx/0xB801xxxx or the Lexra bus access stalls. */
-static void rtl819x_fabric_full_reset(void)
+static void rtl819x_fabric_reset_core(void)
 {
 	int guard;
 
@@ -373,7 +376,11 @@ static void rtl819x_fabric_full_reset(void)
 		pr_err("rtl819x: L4 table clear timeout (MEMCR=%08x)\n", REG32(MEMCR));
 	else
 		pr_info("rtl819x: L4/NAPT table SRAM cleared (MEMCR=%08x)\n", REG32(MEMCR));
+}
 
+static void rtl819x_fabric_full_reset(void)
+{
+	rtl819x_fabric_reset_core();
 	rtl819x_fabric_restore();
 	pr_err("rtl819x: fabric full reset done (SIRR FULL_RST + swcore clock cycle + MEMCR init + cfg restore)\n");
 }
@@ -448,18 +455,35 @@ extern int rtl8367s_trunk_pause_set(int on);
  * Board data (Tenda AC8 port of this driver).  The DIR-842 code wrote its own
  * loader's RGMII pad drive (0xB8000850) and P0 delays (TX on, RX 5) on every
  * open -- "a correct replica must be a data-plane no-op over the loader's own
- * bring-up".  The Tenda AC8 loader leaves the pads alone and ORs 0x17 into
- * P0GMIICR (TX on, RX 7); its stock firmware then writes the pads as
- * (v & 0x01bfffff) | 0xd8000000.  So probe keeps the delays and fields the
- * loader latched (Conf_done set), falls back to realtek,p0-rgmii-{tx,rx}-delay
- * or the DIR-842 values otherwise, and writes the pads only for
- * realtek,rgmii-pad = <keep-mask set-bits>.
+ * bring-up".  The Tenda AC8 loader gates the switch-core clock before it jumps
+ * to the kernel, so its P0 setup is gone by probe time (P0GMIICR reads the chip
+ * default 0x00037d00).  Stock AC8 firmware (init_8197f_p0 @0x8010f9e8) runs the
+ * trunk in CPU-tag mode with CF_SEL_RGTXC = 3, TX delay 0, RX delay 7 and pads
+ * (v & 0x01bfffff) | 0xd8000000.  TX delay 1 on top of CF_SEL_RGTXC = 3 (the
+ * DIR-842 value) is a combination neither the AC8 loader (TX 1, RGTXC 0) nor
+ * stock (TX 0, RGTXC 3) uses.  Probe takes realtek,p0-rgmii-{tx,rx}-delay over
+ * the loader's latched delays, and writes the pads only for
+ * realtek,rgmii-pad = <keep-mask set-bits>.  /proc/rtl819x_trunk changes the
+ * delays and CF_SEL_RGTXC at run time.
  */
 static bool rtl819x_pad_write;
 static u32 rtl819x_pad_mask = 0x019FFFFF;
 static u32 rtl819x_pad_bits = 0xDA600000;
 static u32 rtl819x_p0_delays = (1u << 4) | 5u;
 static u32 rtl819x_p0_fields = (3u << 8) | 0x7Du;	/* P0GMIICR[17:8] */
+static u32 rtl819x_p0_rgtxc = 3;			/* P0GMIICR[19:18] */
+
+/* P0GMIICR for the trunk: GMAC = RGMII (bits[24:23] = 0), fields [17:8],
+ * delays TX (bit 4) + RX [2:0], CPU-tag bits 25/26, CF_SEL_RGTXC [19:18].
+ * Conf_done (bit 6) is left CLEAR: callers latch it last. */
+static u32 rtl819x_p0gmiicr_cfg(u32 v)
+{
+	v &= ~((3u << 25) | (3u << 23) | (3u << 18) |
+	       (3u << 16) | (0xFFu << 8) | 0xFFu);
+	v |= (rtl819x_p0_fields << 8) | rtl819x_p0_delays;
+	v |= (3u << 25) | ((rtl819x_p0_rgtxc & 3) << 18);
+	return v;
+}
 
 static void rtl865x_start(void)
 {
@@ -711,7 +735,8 @@ static void rtl865x_start(void)
 			REG32(RTL819X_SWCORE_BASE + 0x5108) =
 				(v & ~(0xFu << 16)) | (0x8u << 16);
 			/* 4. P0GMIICR: GMAC=RGMII (bits[24:23]=0), loader fields
-			 * bits[17:16]=3 + bits[15:8]=0x7d, delays TX(bit4)+RX=5.
+			 * bits[17:16]=3 + bits[15:8]=0x7d, board delays TX(bit4)+RX
+			 * (rtl819x_p0gmiicr_cfg).
 			 * Conf_done (bit6) stays CLEAR here — latched LAST, after
 			 * the settle, exactly like the loader.
 			 *
@@ -724,11 +749,7 @@ static void rtl865x_start(void)
 			 * HARDWARE, so the RX descriptor's spa carries the real jack
 			 * and TX can name a destination port. Conf_done still latches
 			 * last, below — that ordering is what the loader relies on. */
-			v = REG32(RTL819X_SWCORE_BASE + 0x414C);
-			v &= ~((3u << 25) | (3u << 23) | (3u << 18) |
-			       (3u << 16) | (0xFFu << 8) | 0xFFu);
-			v |= (rtl819x_p0_fields << 8) | rtl819x_p0_delays;
-			v |= (3u << 25) | (3u << 18);	/* CFG_CPUC_TAG|CFG_TX_CPUC_TAG, CF_SEL_RGTXC */
+			v = rtl819x_p0gmiicr_cfg(REG32(RTL819X_SWCORE_BASE + 0x414C));
 			REG32(RTL819X_SWCORE_BASE + 0x414C) = v;
 			/* 5. PITCR port0 = RGMII (default UTP!) */
 			REG32(RTL819X_SWCORE_BASE + 0x4100) |= (1u << 0);
@@ -1509,6 +1530,218 @@ static int rtl819x_eth_stop(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * /proc/rtl819x_trunk (Tenda AC8): live tuning of the RGMII trunk between SoC
+ * P0 and the RTL8367 EXT1 (port 6), without a reflash.
+ *
+ *   cat  /proc/rtl819x_trunk          both ends' delay registers + last test
+ *   echo "soc TX RX [RGTXC]" > ...    SoC P0GMIICR delays (+ CF_SEL_RGTXC)
+ *   echo "sw TX RX" > ...             RTL8367 EXT1 delays (reg 0x1307)
+ *   echo "txtest [N]" > ...           send N broadcast test frames (60/1514 B,
+ *                                     ethertype 0x88b5, LAN VID) and count what
+ *                                     the switch's port 6 received: good vs
+ *                                     FCS/symbol/fragment errors
+ *   echo "rxtest [SECONDS]" > ...     frames the switch sent to the SoC versus
+ *                                     frames eth0 received, over SECONDS
+ *
+ * SoC changes apply at once when eth0 is up (Conf_done re-latched) and are kept
+ * for every later eth0 open; the switch changes apply at once.
+ */
+int rtl8367s_ext1_delay(int tx, int rx, u32 *dis, u32 *rgmxf, u32 *force);
+int rtl8367s_mib_sum(int port, const char *const *names, u64 *sum);
+
+#define RTL819X_TRUNK_SW_PORT	6	/* RTL8367 EXT1 = the SoC P0 uplink */
+
+static const char *const trunk_sw_rx_good[] = {
+	"ifInUcastPkts", "ifInMulticastPkts", "ifInBroadcastPkts", NULL
+};
+static const char *const trunk_sw_rx_bad[] = {
+	"dot3StatsFCSErrors", "dot3StatsSymbolErrors", "etherStatsFragments",
+	"etherStatsUnderSizePkts", "etherStatsJabbers", NULL
+};
+static const char *const trunk_sw_tx_all[] = {
+	"ifOutUcastPkts", "ifOutMulticastPkts", "ifOutBroadcastPkts", NULL
+};
+
+static struct net_device *rtl819x_trunk_dev;
+static char rtl819x_trunk_last[192];
+
+static void rtl819x_trunk_apply_soc(void)
+{
+	u32 v;
+
+	mutex_lock(&rtl865x_hal_lock);
+	v = rtl819x_p0gmiicr_cfg(REG32(RTL819X_SWCORE_BASE + 0x414C));
+	REG32(RTL819X_SWCORE_BASE + 0x414C) = v;
+	msleep(20);
+	REG32(RTL819X_SWCORE_BASE + 0x414C) = v | BIT(6);	/* Conf_done last */
+	mutex_unlock(&rtl865x_hal_lock);
+}
+
+static void rtl819x_trunk_txtest(struct net_device *dev, int n)
+{
+	u64 good0 = 0, bad0 = 0, good1 = 0, bad1 = 0;
+	int i, j, sent = 0, err;
+
+	err = rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_good, &good0);
+	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_bad, &bad0);
+	for (i = 0; i < n; i++) {
+		unsigned int len = (i & 1) ? ETH_FRAME_LEN : ETH_ZLEN;
+		struct sk_buff *skb = netdev_alloc_skb(dev, len);
+		struct ethhdr *eth;
+		u8 *p;
+
+		if (!skb)
+			break;
+		p = skb_put(skb, len);
+		for (j = ETH_HLEN; j < len; j++)
+			p[j] = (u8)(j * 7 + i);
+		eth = (struct ethhdr *)p;
+		eth_broadcast_addr(eth->h_dest);
+		ether_addr_copy(eth->h_source, dev->dev_addr);
+		eth->h_proto = htons(ETH_P_802_EX1);
+		skb_reset_mac_header(skb);
+		skb->protocol = eth->h_proto;
+		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q), RTL865X_VID_LAN);
+		if (dev_queue_xmit(skb) == NET_XMIT_SUCCESS)
+			sent++;
+		if ((i & 7) == 7)
+			msleep(2);
+	}
+	msleep(300);
+	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_good, &good1);
+	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_rx_bad, &bad1);
+	if (err)
+		snprintf(rtl819x_trunk_last, sizeof(rtl819x_trunk_last),
+			 "txtest: sent %d of %d, switch counters unreadable (%d)\n",
+			 sent, n, err);
+	else
+		snprintf(rtl819x_trunk_last, sizeof(rtl819x_trunk_last),
+			 "txtest: sent %d of %d, switch port %d received good %llu errored %llu\n",
+			 sent, n, RTL819X_TRUNK_SW_PORT, good1 - good0, bad1 - bad0);
+	pr_info("rtl819x %s", rtl819x_trunk_last);
+}
+
+static void rtl819x_trunk_rxtest(struct net_device *dev, int secs)
+{
+	unsigned long rx0 = dev->stats.rx_packets, rx1;
+	u64 out0 = 0, out1 = 0;
+	int err;
+
+	err = rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_tx_all, &out0);
+	msleep(secs * 1000);
+	err = err ?: rtl8367s_mib_sum(RTL819X_TRUNK_SW_PORT, trunk_sw_tx_all, &out1);
+	rx1 = dev->stats.rx_packets;
+	if (err)
+		snprintf(rtl819x_trunk_last, sizeof(rtl819x_trunk_last),
+			 "rxtest: %ds, eth0 received %lu, switch counters unreadable (%d)\n",
+			 secs, rx1 - rx0, err);
+	else
+		snprintf(rtl819x_trunk_last, sizeof(rtl819x_trunk_last),
+			 "rxtest: %ds, switch port %d sent %llu, eth0 received %lu\n",
+			 secs, RTL819X_TRUNK_SW_PORT, out1 - out0, rx1 - rx0);
+	pr_info("rtl819x %s", rtl819x_trunk_last);
+}
+
+static int rtl819x_trunk_show(struct seq_file *m, void *v)
+{
+	u32 gmii = REG32(RTL819X_SWCORE_BASE + 0x414C);
+	u32 dis = 0, rgmxf = 0, force = 0;
+	struct net_device *dev = rtl819x_trunk_dev;
+
+	seq_printf(m, "soc: P0GMIICR=%08x tx_delay=%u rx_delay=%u rgtxc=%u conf_done=%u cpu_tag=%u PITCR=%08x PCRP0=%08x PAD=%08x\n",
+		   gmii, !!(gmii & BIT(4)), gmii & 7, (gmii >> 18) & 3,
+		   !!(gmii & BIT(6)), (gmii >> 25) & 3,
+		   REG32(RTL819X_SWCORE_BASE + 0x4100),
+		   REG32(RTL819X_SWCORE_BASE + 0x4104), REG32(0xB8000850));
+	seq_printf(m, "soc-config: tx_delay=%u rx_delay=%u rgtxc=%u\n",
+		   !!(rtl819x_p0_delays & BIT(4)), rtl819x_p0_delays & 7,
+		   rtl819x_p0_rgtxc);
+	if (rtl8367s_ext1_delay(-1, -1, &dis, &rgmxf, &force))
+		seq_puts(m, "sw: RTL8367 not probed\n");
+	else
+		seq_printf(m, "sw: EXT1 0x1305=%04x 0x1307=%04x tx_delay=%u rx_delay=%u 0x1311=%04x\n",
+			   dis, rgmxf, !!(rgmxf & BIT(3)), rgmxf & 7, force);
+	if (dev)
+		seq_printf(m, "eth0: %s rx_packets=%lu tx_packets=%lu rx_dropped=%lu\n",
+			   netif_running(dev) ? "up" : "down",
+			   dev->stats.rx_packets, dev->stats.tx_packets,
+			   dev->stats.rx_dropped);
+	if (rtl819x_trunk_last[0])
+		seq_printf(m, "last %s", rtl819x_trunk_last);
+	return 0;
+}
+
+static int rtl819x_trunk_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, rtl819x_trunk_show, NULL);
+}
+
+static ssize_t rtl819x_trunk_write(struct file *file, const char __user *ubuf,
+				   size_t count, loff_t *ppos)
+{
+	struct net_device *dev = rtl819x_trunk_dev;
+	char buf[48];
+	int a = -1, b = -1, c = -1, n;
+
+	if (!dev)
+		return -ENODEV;
+	if (count >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, count))
+		return -EFAULT;
+	buf[count] = 0;
+
+	if (!strncmp(buf, "soc ", 4)) {
+		n = sscanf(buf + 4, "%d %d %d", &a, &b, &c);
+		if (n < 2 || a < 0 || a > 1 || b < 0 || b > 7 ||
+		    (n == 3 && (c < 0 || c > 3)))
+			return -EINVAL;
+		rtl819x_p0_delays = (a ? BIT(4) : 0) | b;
+		if (n == 3)
+			rtl819x_p0_rgtxc = c;
+		if (REG32(RTL819X_SWCORE_BASE + 0x4100) & BIT(0))	/* trunk up */
+			rtl819x_trunk_apply_soc();
+		pr_info("rtl819x trunk: SoC tx_delay %d rx_delay %d rgtxc %u -> P0GMIICR %08x\n",
+			a, b, rtl819x_p0_rgtxc, REG32(RTL819X_SWCORE_BASE + 0x414C));
+	} else if (!strncmp(buf, "sw ", 3)) {
+		u32 rgmxf = 0;
+		int err;
+
+		if (sscanf(buf + 3, "%d %d", &a, &b) != 2 ||
+		    a < 0 || a > 1 || b < 0 || b > 7)
+			return -EINVAL;
+		err = rtl8367s_ext1_delay(a, b, NULL, &rgmxf, NULL);
+		if (err)
+			return err;
+		pr_info("rtl819x trunk: switch EXT1 tx_delay %d rx_delay %d -> 0x1307=%04x\n",
+			a, b, rgmxf);
+	} else if (!strncmp(buf, "txtest", 6)) {
+		n = 200;
+		if (sscanf(buf + 6, "%d", &n) == 1 && (n < 1 || n > 10000))
+			return -EINVAL;
+		if (!netif_running(dev))
+			return -ENETDOWN;
+		rtl819x_trunk_txtest(dev, n);
+	} else if (!strncmp(buf, "rxtest", 6)) {
+		n = 5;
+		if (sscanf(buf + 6, "%d", &n) == 1 && (n < 1 || n > 60))
+			return -EINVAL;
+		rtl819x_trunk_rxtest(dev, n);
+	} else {
+		return -EINVAL;
+	}
+	return count;
+}
+
+static const struct proc_ops rtl819x_trunk_fops = {
+	.proc_open	= rtl819x_trunk_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+	.proc_write	= rtl819x_trunk_write,
+};
+
 /* M6.6 Phase 3: the two conntrack HW-NAT offload hooks are always present. They gate
  * internally on the runtime-writable rtl819x.hwnat param and decline every flow to
  * the software path while it is off, so hwnat=0 behaves identically to a driver
@@ -1575,19 +1808,32 @@ static int rtl819x_eth_probe(struct platform_device *pdev)
 			/* Conf_done: the loader brought the trunk up. */
 			rtl819x_p0_delays = v & 0x17;
 			rtl819x_p0_fields = (v >> 8) & 0x3FF;
-		} else {
-			if (!of_property_read_u32(np, "realtek,p0-rgmii-tx-delay", &d))
-				rtl819x_p0_delays = (rtl819x_p0_delays & ~BIT(4)) |
-						    (d ? BIT(4) : 0);
-			if (!of_property_read_u32(np, "realtek,p0-rgmii-rx-delay", &d))
-				rtl819x_p0_delays = (rtl819x_p0_delays & ~7u) |
-						    (d & 7);
 		}
+		/* Board delays win over whatever the loader latched. */
+		if (!of_property_read_u32(np, "realtek,p0-rgmii-tx-delay", &d))
+			rtl819x_p0_delays = (rtl819x_p0_delays & ~BIT(4)) |
+					    (d ? BIT(4) : 0);
+		if (!of_property_read_u32(np, "realtek,p0-rgmii-rx-delay", &d))
+			rtl819x_p0_delays = (rtl819x_p0_delays & ~7u) | (d & 7);
 		dev_info(&pdev->dev,
-			 "P0GMIICR=%08x at probe (%s): RGMII TX delay %u, RX delay %u; pads %s\n",
+			 "P0GMIICR=%08x at probe (%s): RGMII TX delay %u, RX delay %u, RGTXC %u; pads %s\n",
 			 v, (v & BIT(6)) ? "loader-configured" : "not configured",
 			 !!(rtl819x_p0_delays & BIT(4)), rtl819x_p0_delays & 7,
+			 rtl819x_p0_rgtxc,
 			 rtl819x_pad_write ? "written" : "left alone");
+
+		/*
+		 * Tenda AC8: the loader's clock gate left the switch core with
+		 * reset registers but whatever its table SRAM held. Stock runs
+		 * FullAndSemiReset + the table-SRAM init at every Ethernet init
+		 * (see rtl819x_fabric_full_reset); do the same once here, before
+		 * the first rtl865x_start() programs VLANs, PVIDs and the trunk.
+		 */
+		if (of_property_read_bool(np, "realtek,probe-fabric-reset")) {
+			rtl819x_fabric_reset_core();
+			dev_info(&pdev->dev,
+				 "switch core reset (FULL_RST + clock cycle + table SRAM init)\n");
+		}
 	}
 
 	dev->netdev_ops = &rtl819x_eth_netdev_ops;
@@ -1612,6 +1858,9 @@ static int rtl819x_eth_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_napi;
 
+	rtl819x_trunk_dev = dev;
+	proc_create("rtl819x_trunk", 0644, NULL, &rtl819x_trunk_fops);
+
 	dev_info(&pdev->dev, "RTL819x switch NIC bound as %s (irq %d)\n",
 		 dev->name, priv->irq);
 	return 0;
@@ -1628,6 +1877,8 @@ static int rtl819x_eth_remove(struct platform_device *pdev)
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct rtl819x_eth_priv *priv = netdev_priv(dev);
 
+	remove_proc_entry("rtl819x_trunk", NULL);
+	rtl819x_trunk_dev = NULL;
 	unregister_netdev(dev);
 	netif_napi_del(&priv->napi);
 	New_swNic_setDev(NULL);

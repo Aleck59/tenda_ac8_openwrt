@@ -189,16 +189,19 @@
  * rtl819x (D-Link DIR-842 R1 port) instead of rtknet: the SoC inserts and
  * strips the 4-byte Realtek CPU tag in hardware (P0GMIICR CFG_CPUC_TAG), the
  * RX descriptor names the jack, and the driver hands LAN (VID 2) and WAN
- * (VID 1) to Linux as eth0.2 / eth0.1.  RGMII delays: those the loader
- * latched (it ORs 0x17 into P0GMIICR: TX delay on, RX 7), matching the
- * switch side the loader set up; the properties are only the fallback for a
- * boot without the loader's network init.  The pad drive is the value the
- * stock firmware writes after the loader, (v & 0x01bfffff) | 0xd8000000.
+ * (VID 1) to Linux as eth0.2 / eth0.1.  The loader gates the switch-core
+ * clock before it jumps to the kernel, so its P0 setup is lost and the driver
+ * programs the trunk itself: the values of stock init_8197f_p0 (CPU tag,
+ * CF_SEL_RGTXC 3, TX delay 0, RX delay 7) against the switch EXT1 side the
+ * loader left (tx 0, rx 2).  The pad drive is the value the stock firmware
+ * writes, (v & 0x01bfffff) | 0xd8000000.  Stock also resets the switch core
+ * and initialises its table SRAM at every Ethernet init.
  */
 &ethernet0 {
 	compatible = "realtek,rtl8197f-eth";
-	realtek,p0-rgmii-tx-delay = <1>;
+	realtek,p0-rgmii-tx-delay = <0>;
 	realtek,p0-rgmii-rx-delay = <7>;
+	realtek,probe-fabric-reset;
 	realtek,rgmii-pad = <0x01bfffff 0xd8000000>;
 	status = "okay";
 };

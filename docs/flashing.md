@@ -180,18 +180,50 @@ D-Link DIR-842 R1: у него тот же SoC и коммутатор с тем
 сбрасывает чип и оставляет RGMII-канал, который поднял загрузчик
 (сброс с частичной переинициализацией и давал «линк есть, данных нет»).
 
+Сторону SoC драйвер настраивает сам: загрузчик гасит тактирование switch
+core перед запуском ядра, и его настройка порта P0 теряется. С
+`ac8-20260926-20` задержки RGMII по умолчанию как в стоке AC8: SoC — TX 0,
+RX 7, `CF_SEL_RGTXC` 3; коммутатор — TX 0, RX 2 (их ставит загрузчик).
+
 В логе загрузки должно быть:
 
 ```
 RTL8367S: loader-configured uplink (0x1219=0040) — preserving power-on RGMII trunk
 applied Tenda AC8 OEM LED/threshold/SSC sequence
-rtl819x ...: P0GMIICR=... at probe (loader-configured): RGMII TX delay 1, RX delay 7; pads written
+rtl819x-eth ...: P0GMIICR=00037d00 at probe (not configured): RGMII TX delay 0, RX delay 7, RGTXC 3; pads written
+rtl819x-eth ...: switch core reset (FULL_RST + clock cycle + table SRAM init)
 rtl819x trunk-post: ...
 ```
+
+#### Подбор задержек RGMII: `ac8-trunk`
+
+Если линк есть, а данных нет, задержки обеих сторон канала SoC ↔
+коммутатор подбираются на ходу, без перепрошивки. Нужна консоль UART.
+
+1. Подключите ПК к LAN-гнезду, задайте ему адрес `192.168.1.2/24` и
+   запустите на нём `ping -t 192.168.1.1` (Linux: `ping 192.168.1.1`).
+   Этот пинг нужен только для проверки приёма (коммутатор → роутер).
+2. На роутере: `ac8-trunk test`. Передача (роутер → коммутатор)
+   проверяется без ПК: драйвер отправляет 200 тестовых кадров, коммутатор
+   считает их на порту 6 — целые и с ошибками CRC. Приём: сколько кадров
+   коммутатор отправил роутеру и сколько из них получил `eth0`.
+3. Если хотя бы одно направление `FAIL`: `ac8-trunk sweep` (около 3 минут)
+   перебирает задержки и оставляет рабочие. Потом снова `ac8-trunk test`.
+4. `ac8-trunk save` — сохранить значения (`/etc/ac8-trunk.conf`, переживает
+   перезагрузку и обновление); `ac8-trunk reset` — вернуть значения
+   прошивки после перезагрузки.
+
+Вручную: `ac8-trunk soc TX RX [RGTXC]` (SoC: TX 0–1, RX 0–7, RGTXC 0–3),
+`ac8-trunk sw TX RX` (коммутатор: TX 0–1, RX 0–7), `ac8-trunk` без
+аргументов показывает регистры обеих сторон. Всё это — обёртка над
+`/proc/rtl819x_trunk`. Пришлите вывод `ac8-trunk sweep` и
+`/tmp/ac8-trunk.log`: рабочие значения войдут в прошивку по умолчанию.
 
 Если Ethernet не работает, пришлите `dmesg` целиком и вывод:
 
 ```sh
+ac8-trunk
+ac8-trunk test
 swconfig dev switch0 show
 ip -s link show eth0
 cat /proc/rtl865x_fabric

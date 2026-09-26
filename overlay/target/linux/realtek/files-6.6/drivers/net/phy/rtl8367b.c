@@ -1439,6 +1439,75 @@ static int rtl8367b_get_mib_counter(struct rtl8366_smi *smi, int counter,
 	return 0;
 }
 
+/*
+ * Tenda AC8 trunk tuning (rtl819x /proc/rtl819x_trunk).
+ *
+ * rtl8367s_ext1_delay(): set the EXT1 (port 6, SoC P0 uplink) RGMII delays in
+ * 0x1307 -- tx (bit 3) and rx (bits 2:0); a negative value leaves that field
+ * alone. Returns the EXT1 mode (0x1305), delay (0x1307) and force (0x1311)
+ * words through any non-NULL pointer.
+ */
+int rtl8367s_ext1_delay(int tx, int rx, u32 *dis, u32 *rgmxf, u32 *force)
+{
+	struct rtl8366_smi *smi = g_dir842_smi;
+	u32 v;
+	int err;
+
+	if (!smi)
+		return -ENODEV;
+	if (tx >= 0 || rx >= 0) {
+		err = rtl8366_smi_read_reg(smi, RTL8367B_EXT_RGMXF_REG(1), &v);
+		if (err)
+			return err;
+		if (tx >= 0)
+			v = (v & ~(RTL8367B_EXT_RGMXF_TXDELAY_MASK <<
+				   RTL8367B_EXT_RGMXF_TXDELAY_SHIFT)) |
+			    ((tx & RTL8367B_EXT_RGMXF_TXDELAY_MASK) <<
+			     RTL8367B_EXT_RGMXF_TXDELAY_SHIFT);
+		if (rx >= 0)
+			v = (v & ~RTL8367B_EXT_RGMXF_RXDELAY_MASK) |
+			    (rx & RTL8367B_EXT_RGMXF_RXDELAY_MASK);
+		err = rtl8366_smi_write_reg(smi, RTL8367B_EXT_RGMXF_REG(1), v);
+		if (err)
+			return err;
+	}
+	if (dis && (err = rtl8366_smi_read_reg(smi, RTL8367B_DIS_REG, dis)))
+		return err;
+	if (rgmxf &&
+	    (err = rtl8366_smi_read_reg(smi, RTL8367B_EXT_RGMXF_REG(1), rgmxf)))
+		return err;
+	if (force &&
+	    (err = rtl8366_smi_read_reg(smi, RTL8367B_DI_FORCE_REG(1), force)))
+		return err;
+	return 0;
+}
+EXPORT_SYMBOL(rtl8367s_ext1_delay);
+
+/* Sum of the named MIB counters of one port (NULL-terminated name list). */
+int rtl8367s_mib_sum(int port, const char *const *names, u64 *sum)
+{
+	struct rtl8366_smi *smi = g_dir842_smi;
+	unsigned long long c;
+	int i, err;
+
+	if (!smi)
+		return -ENODEV;
+	*sum = 0;
+	for (; *names; names++) {
+		for (i = 0; i < RTL8367B_NUM_MIB_COUNTERS; i++)
+			if (!strcmp(rtl8367b_mib_counters[i].name, *names))
+				break;
+		if (i == RTL8367B_NUM_MIB_COUNTERS)
+			return -EINVAL;
+		err = rtl8367b_get_mib_counter(smi, i, port, &c);
+		if (err)
+			return err;
+		*sum += c;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(rtl8367s_mib_sum);
+
 static int rtl8367b_get_vlan_4k(struct rtl8366_smi *smi, u32 vid,
 				struct rtl8366_vlan_4k *vlan4k)
 {
