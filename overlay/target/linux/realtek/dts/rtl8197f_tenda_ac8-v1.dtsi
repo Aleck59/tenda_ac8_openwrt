@@ -22,8 +22,9 @@
  * NOT verified on hardware (taken from the Tenda AC23 profile of the
  * RTL8197F port, which uses the same RTL8197FH + RTL8367RB design, and
  * from the Xiaomi RD05 profile for the SoC side of the link):
- *   - WAN traffic (LAN verified: LuCI reachable with the delays and the
- *     rtl8_4t tag chosen by ac8-ethtest);
+ *   - Ethernet with the rtl819x + rtl8367b drivers of the D-Link DIR-842 R1
+ *     port (with rtknet + rtl8365mb DSA frames from the PC arrived, but
+ *     the router's own frames did not reliably reach the PC);
  *   - switch port to front-panel jack mapping;
  *   - RAM size (64 MiB declared, the chip may have 128 MiB);
  *   - the SYS LED and the button (GPIOs from the code of the stock AC8 v1
@@ -105,69 +106,25 @@
 		};
 	};
 
-	rtl8367_smi: switch {
-		compatible = "realtek,rtl8367rb", "realtek,rtl8367rb-vc", "realtek,rtl8365mb";
+	/*
+	 * RTL8367RB-VB (chip id 0x6367, ver 0x0020 -- the same id as the
+	 * RTL8367S of the D-Link DIR-842 R1), swconfig rtl8367b driver of the
+	 * DIR-842 port.  The boot loader brings the RGMII uplink (EXT1 = port 6
+	 * <-> SoC P0) up on every boot; the driver keeps it and does not reset
+	 * the chip (a reset plus a partial re-init desynchronised the RGMII
+	 * pair on the DIR-842: link up, no frames).  Jacks: ports 0-3 LAN,
+	 * port 4 WAN.  realtek,rtl8197f-ac8-oem-init: the stock
+	 * rtk_switch_init() tail (port LED pins, LED mode, thresholds, SSC).
+	 */
+	rtl8367b {
+		compatible = "realtek,rtl8367b";
 		pinctrl-names = "default";
 		pinctrl-0 = <&rtl8367_smi_h0_g7_pins>;
-		mdc-gpios = <&gpio0 56 GPIO_ACTIVE_HIGH>;  /* SDK H0 */
-		mdio-gpios = <&gpio0 55 GPIO_ACTIVE_HIGH>; /* SDK G7 */
-		/* rtk_switch_init() of the stock firmware: port LEDs, thresholds, SSC */
+		cpu_port = <6>;
+		realtek,extif1 = <1 0 1 1 1 1 1 1 2>;
+		gpio-sck = <&gpio0 56 GPIO_ACTIVE_HIGH>;	/* H0, MDC */
+		gpio-sda = <&gpio0 55 GPIO_ACTIVE_HIGH>;	/* G7, MDIO */
 		realtek,rtl8197f-ac8-oem-init;
-		status = "okay";
-
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			/*
-			 * The AC8 has 1 WAN + 3 LAN jacks on a 5-PHY switch.  All five
-			 * PHYs are published so the real mapping can be found from the
-			 * link state; one of lan1..lan4 has no jack.
-			 */
-			port@0 { reg = <0>; label = "lan1"; phy-handle = <&swphy0>; };
-			port@1 { reg = <1>; label = "lan2"; phy-handle = <&swphy1>; };
-			port@2 { reg = <2>; label = "lan3"; phy-handle = <&swphy2>; };
-			port@3 { reg = <3>; label = "lan4"; phy-handle = <&swphy3>; };
-			port@4 { reg = <4>; label = "wan";  phy-handle = <&swphy4>; };
-
-			/* EXT1 of the RTL8367RB-VB, RGMII peer of RTL8197F P0. */
-			port@6 {
-				reg = <6>;
-				label = "cpu";
-				ethernet = <&ethernet0>;
-				phy-mode = "rgmii";
-				/*
-				 * Found with ac8-ethtest on a real AC8 v1: frames from
-				 * the SoC only pass with the trailer tag (with the
-				 * header tag the switch drops them) and with switch RX
-				 * delay 3 (0.9 ns) against P0 TX delay 1, see
-				 * &ethernet0.  Both delays can be changed at run time
-				 * through /sys/module/rtl8365mb/parameters/
-				 * ext_rgmii_{tx,rx}_delay.
-				 */
-				dsa-tag-protocol = "rtl8_4t";
-				tx-internal-delay-ps = <0>;
-				rx-internal-delay-ps = <900>;
-
-				fixed-link {
-					speed = <1000>;
-					full-duplex;
-					pause;
-				};
-			};
-		};
-
-		mdio {
-			compatible = "realtek,smi-mdio";
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			swphy0: ethernet-phy@0 { reg = <0>; eee-broken-100tx; eee-broken-1000t; };
-			swphy1: ethernet-phy@1 { reg = <1>; eee-broken-100tx; eee-broken-1000t; };
-			swphy2: ethernet-phy@2 { reg = <2>; eee-broken-100tx; eee-broken-1000t; };
-			swphy3: ethernet-phy@3 { reg = <3>; eee-broken-100tx; eee-broken-1000t; };
-			swphy4: ethernet-phy@4 { reg = <4>; eee-broken-100tx; eee-broken-1000t; };
-		};
 	};
 };
 
@@ -229,33 +186,20 @@
 };
 
 /*
- * Same datapath as the Xiaomi RD05 of the port (RTL8197FH-VG, external
- * RTL8367 on physical P0/RGMII, rtl8_4 tag in Linux DSA); rtknet treats
- * tenda,ac8-v1 as an RD05-class board.  DMA TX goes straight to P0
- * (DP bit 0); DP bit 6 with DP_EXT=2 is the internal extension path and
- * never reaches the RTL8367RB.
+ * rtl819x (D-Link DIR-842 R1 port) instead of rtknet: the SoC inserts and
+ * strips the 4-byte Realtek CPU tag in hardware (P0GMIICR CFG_CPUC_TAG), the
+ * RX descriptor names the jack, and the driver hands LAN (VID 2) and WAN
+ * (VID 1) to Linux as eth0.2 / eth0.1.  RGMII delays: those the loader
+ * latched (it ORs 0x17 into P0GMIICR: TX delay on, RX 7), matching the
+ * switch side the loader set up; the properties are only the fallback for a
+ * boot without the loader's network init.  The pad drive is the value the
+ * stock firmware writes after the loader, (v & 0x01bfffff) | 0xd8000000.
  */
 &ethernet0 {
-	realtek,tx-port-mask = <0x1>;
-	realtek,tx-dp-ext = <0x0>;
-	realtek,tx-extspa = <0x0>;
-	realtek,rx-poll-fallback;
-	realtek,rx-poll-ms = <50>;
-	realtek,sdk-cpuicr1-init;
-	realtek,sdk-swcore-init;
-	realtek,sdk-trxrdy;
-	/* SoC-side VID9/L2/netif host-link seed for P0. */
-	realtek,legacy-rd05-sdk-pipeline;
-	realtek,p0-cpu-tag-pass-through;
-	/* Descriptor lengths include the FCS, as in the Realtek SDK. */
-	realtek,sdk-crc-lengths;
-	/*
-	 * P0 RGMII delays found with ac8-ethtest (TX delay on, RX tap 6).
-	 * Runtime parameters: /sys/module/rtl8197f_rtknet/parameters/
-	 * rd05_p0_{tx,rx}_delay.
-	 */
+	compatible = "realtek,rtl8197f-eth";
 	realtek,p0-rgmii-tx-delay = <1>;
-	realtek,p0-rgmii-rx-delay = <6>;
+	realtek,p0-rgmii-rx-delay = <7>;
+	realtek,rgmii-pad = <0x01bfffff 0xd8000000>;
 	status = "okay";
 };
 

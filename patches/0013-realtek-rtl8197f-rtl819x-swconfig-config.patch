@@ -1,0 +1,20 @@
+Subject: [PATCH] realtek: rtl8197f: build the rtl819x Ethernet and rtl8367b swconfig drivers
+
+---
+--- a/target/linux/realtek/rtl8197f/config-6.6
++++ b/target/linux/realtek/rtl8197f/config-6.6
+@@ -339,6 +339,14 @@
+ CONFIG_RTL8197F_RTKNET=y
+ CONFIG_RTL8197F_RD05_OEM_SWITCH_PREINIT=y
+ 
++# Tenda AC8: the rtl819x CPU-port driver of the D-Link DIR-842 R1 port and
++# the rtl8367b swconfig driver for its RTL8367RB-VB (the same chip id as the
++# DIR-842 RTL8367S).  Built in: rtl819x calls into rtl8367b.
++CONFIG_NET_RTL819X=y
++CONFIG_SWCONFIG=y
++CONFIG_RTL8366_SMI=y
++CONFIG_RTL8367B_PHY=y
++
+ # RD05 v12 raw UART rescue monitor needs /dev/mem for OEM-style MMIO UART0 access.
+ CONFIG_DEVMEM=y
+ # CONFIG_STRICT_DEVMEM is not set

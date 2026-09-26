@@ -22,3 +22,6 @@ kmod-(e100|e1000|e1000e|igb|igbvf|igc|ixgbe|ixgbevf|i40e|iavf|ice|r8169|r8101|r8
 # Wi-Fi chips other than the AC8's (rtl8192cd), other rtl8192cd variants
 kmod-(ath|ath5k|ath6kl|ath9k|ath10k|ath11k|ath12k|ar5523|carl9170|mt76|mt7601u|mt7603|mt7615|mt7663|mt7915|mt7916|mt7921|mt7925|mt7996|mt792x|rt2x00|rt2800|rt61pci|rt73usb|rtlwifi|rtl8xxxu|rtl8187|rtl8180|rtl8192c|rtl8192ce|rtl8192cu|rtl8192d|rtl8192de|rtl8192du|rtl8192se|rtl8723|rtl8723be|rtl8723bs|rtl8812au|rtl8821ae|rtw88|rtw89|rsi91x|brcmfmac|brcmsmac|brcmutil|b43|b43legacy|iwlwifi|iwl|mwifiex|mwl8k|mwlwifi|p54|libertas|wil6210|zd1211rw|plfxlc|qtnfmac|wl12xx|wl18xx|wlcore|mac80211-hwsim|owl-loader)(-.*)?
 kmod-rtl8192cd-rtl8197f-(mw5|rd05|ac23)
+
+# Built into the kernel for the AC8 (rtl819x Ethernet + rtl8367b swconfig)
+kmod-(swconfig|switch-rtl8366-smi|switch-rtl8366rb|switch-rtl8366s|switch-rtl8367b)

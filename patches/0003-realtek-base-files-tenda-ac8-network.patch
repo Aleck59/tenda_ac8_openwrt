@@ -18,38 +18,25 @@ Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network, Wi-Fi defaults, 
          # Keep first-boot defaults empty to avoid driving unknown pins.
 --- a/target/linux/realtek/base-files/etc/board.d/02_network
 +++ b/target/linux/realtek/base-files/etc/board.d/02_network
-@@ -54,14 +54,28 @@
- 	lan_list="lan1 lan2 lan3 lan4"
- 	wan_list="wan"
- 	;;
-+
-+tenda,ac8-v1|\
-+	tenda,ac8-v1-8m|\
-+	tenda,ac8-v1-16m)
-+	# RTL8367RB: switch ports 0..3 are published as lan1..lan4 and port 4
-+	# as wan.  The AC8 has only three LAN jacks; the jack mapping is not
-+	# verified yet.
-+	lan_list="lan1 lan2 lan3 lan4"
-+	wan_list="wan"
-+	;;
+@@ -57,6 +57,17 @@
  esac
  
  case $board in
--tenda,nova-mw5)
-+tenda,nova-mw5|\
 +tenda,ac8-v1|\
 +tenda,ac8-v1-8m|\
 +tenda,ac8-v1-16m)
++	# rtl819x (the DIR-842 R1 driver) hands the jacks to Linux by VLAN:
++	# VID 1 = WAN (switch port 4) as eth0.1, VID 2 = LAN (ports 0-3) as
++	# eth0.2, and the rtl8367b swconfig VLANs must use the same numbers.
++	# The VLAN number is the order of the roles: wan first.  The AC8 has
++	# three LAN jacks; the jack mapping is not verified yet.
++	ucidef_add_switch "switch0" \
++		"4:wan" "0:lan" "1:lan" "2:lan" "3:lan" "6t@eth0"
++	;;
+ tenda,nova-mw5)
  	# The MW5 is a two-port DSA router, not a managed-switch platform.  Do not
  	# create the target-wide "switch" bridge with switch.1/switch.2 bridge VLAN
- 	# devices: the normal OpenWrt topology is br-lan containing the DSA "lan"
--	# slave and a directly routed DSA "wan" slave.
-+	# slave and a directly routed DSA "wan" slave.  The same holds for the
-+	# AC8: its rtl8365mb switch offloads neither bridging nor VLANs.
- 	ucidef_set_interfaces_lan_wan "$lan_list" "$wan_list"
- 	;;
- *)
-@@ -107,6 +121,16 @@
+@@ -107,6 +118,16 @@
  	lan_mac="$label_mac"
  	[ -n "$lan_mac" ] && wan_mac=$(macaddr_add "$lan_mac" 2)
  	;;
@@ -58,15 +45,15 @@ Subject: [PATCH] realtek: base-files: add Tenda AC8 v1 network, Wi-Fi defaults, 
 +tenda,ac8-v1-16m)
 +	# Tenda "FLSH" key=value store at 0x1c000 in the boot area:
 +	# et0macaddr (LAN, label), wl0_hwaddr (5 GHz), wl1_hwaddr (2.4 GHz).
-+	# The stock firmware uses et0macaddr for WAN as well (wan0_hwaddr).
++	# The stock firmware uses et0macaddr for WAN as well (wan0_hwaddr), and
++	# so does eth0.1, a VLAN of eth0.
 +	label_mac=$(mtd_get_mac_ascii boot et0macaddr)
 +	lan_mac="$label_mac"
-+	wan_mac="$label_mac"
 +	;;
  hpe,1920-8g|\
  hpe,1920-8g-poe-65w|\
  hpe,1920-8g-poe-180w|\
-@@ -219,6 +243,18 @@
+@@ -219,6 +240,18 @@
  	;;
  esac
  

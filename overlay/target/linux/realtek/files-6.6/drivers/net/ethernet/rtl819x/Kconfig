@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0
+config NET_RTL819X
+	bool "Realtek RTL8197F (RTL819x) switch-core Ethernet (DIR-842 driver)"
+	depends on RTL8197F && HAS_DMA && HAS_IOMEM
+	depends on RTL8367B_PHY=y
+	select CRC32
+	help
+	  Ethernet driver for the CPU port of the switch core of the Realtek
+	  RTL8197F with an external RTL8367S/RTL8367RB-VB switch on port 0
+	  (RGMII), from the D-Link DIR-842 R1 OpenWrt port.  The SoC inserts
+	  and strips the Realtek CPU tag in hardware; LAN and WAN reach Linux
+	  as eth0.2 and eth0.1, the external switch is configured by the
+	  rtl8367b swconfig driver.
+
+	  bool, not tristate: the objects mix module_platform_driver() with
+	  late_initcall(), and it calls into the built-in rtl8367b driver.

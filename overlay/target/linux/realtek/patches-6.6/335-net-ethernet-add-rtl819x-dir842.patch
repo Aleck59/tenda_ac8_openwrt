@@ -1,0 +1,30 @@
+From: Tenda AC8 OpenWrt port
+Subject: net: ethernet: add the rtl819x driver of the DIR-842 R1 port
+
+The RTL8197F switch-core CPU-port Ethernet driver from
+github.com/ADCDS/openwrt-dlink-dir842-r1 (files-6.6/drivers/net/ethernet/
+rtl819x of this target): the SoC inserts and strips the Realtek CPU tag in
+hardware, the external RTL8367S/RB-VB is driven by the rtl8367b swconfig
+driver, which keeps the RGMII uplink the boot loader brought up.
+---
+--- a/drivers/net/ethernet/Makefile
++++ b/drivers/net/ethernet/Makefile
+@@ -6,6 +6,7 @@
+ obj-$(CONFIG_RTL8197F_ETH_DIAG) += rtl8197f_ethdiag.o
+ obj-$(CONFIG_RTL8197F_RTKNET) += rtl8197f_rtknet.o
+ obj-$(CONFIG_RTL8197F_RD05_OEM_SWITCH_PREINIT) += rtl8197f_rd05_oem_switch_preinit.o
++obj-$(CONFIG_NET_RTL819X) += rtl819x/
+ obj-$(CONFIG_NET_VENDOR_3COM) += 3com/
+ obj-$(CONFIG_NET_VENDOR_8390) += 8390/
+ obj-$(CONFIG_NET_VENDOR_ACTIONS) += actions/
+--- a/drivers/net/ethernet/Kconfig
++++ b/drivers/net/ethernet/Kconfig
+@@ -69,6 +69,8 @@
+ 	  native realtek-smi DSA probe. It does not import the legacy rtknet
+ 	  fastpath or the full vendor switch stack.
+ 
++source "drivers/net/ethernet/rtl819x/Kconfig"
++
+ config SUNGEM_PHY
+ 	tristate
+ 
