@@ -11,7 +11,7 @@ start() {
 	if [ -f /etc/ac8-trunk.conf ]; then
 		while read -r what a b c; do
 			case "$what" in
-			soc|sw)
+			soc|sw|vlan)
 				/usr/sbin/ac8-trunk "$what" $a $b $c >/dev/null 2>&1 ||
 					logger -t ac8-trunk "rejected: $what $a $b $c"
 				;;

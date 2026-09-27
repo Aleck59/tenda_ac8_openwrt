@@ -1,0 +1,21 @@
+Subject: [PATCH] rtl8192cd-rtl8197f: the AC8 driver selects DRIVER_11AC_SUPPORT
+
+hostapd is built with CONFIG_IEEE80211AC only when a selected Wi-Fi
+driver sets DRIVER_11AC_SUPPORT, as the mac80211 and mt76 11ac drivers
+do.  kmod-rtl8192cd-rtl8197f-ac8 drives the RTL8812F (802.11ac) but did
+not, so wpad-basic-mbedtls rejected the VHT80 configuration of the
+5 GHz radio on the AC8 ("unknown configuration item 'vht_oper_chwidth'",
+"hostapd.add_iface failed") and the access point never came up.
+
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/Makefile
++++ b/package/kernel/rtl8192cd-rtl8197f/Makefile
+@@ -46,7 +46,7 @@
+ define KernelPackage/rtl8192cd-rtl8197f-ac8
+ $(call KernelPackage/rtl8192cd-rtl8197f/Default)
+   TITLE:=RTL8197FH + RTL8812F WLAN driver for Tenda AC8 (cfg80211)
+-  DEPENDS+= +kmod-cfg80211
++  DEPENDS+= +kmod-cfg80211 +@DRIVER_11AC_SUPPORT
+   VARIANT:=ac8
+   CONFLICTS:=kmod-rtl8192cd-rtl8197f-mw5 kmod-rtl8192cd-rtl8197f-rd05 kmod-rtl8192cd-rtl8197f-ac23
+ endef

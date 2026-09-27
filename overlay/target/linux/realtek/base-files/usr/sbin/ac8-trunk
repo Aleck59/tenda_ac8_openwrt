@@ -59,6 +59,7 @@ Usage: ac8-trunk [command]
   soc TX RX [PAD]  set the SoC delays (TX 0-1, RX 0-7) and pads
                (0 stock AC8, 1 RD05)
   sw TX RX     set the switch EXT1 delays (TX 0-1, RX 0-7)
+  vlan MODE    rtknet 802.1Q TX descriptor variant (0-3, default 1)
   boot         boot check: test, search the TX delays if TX fails (no PC
                needed), print the result on the serial console
   save         keep the current values across reboots
@@ -115,6 +116,37 @@ soc_set() {
 txtest() {
 	wr "txtest ${1:-100}" || { echo "0 -1"; return; }
 	last | sed -n 's/.*received good \([0-9]*\) errored \([0-9]*\).*/\1 \2/p'
+}
+
+# txfwd: dropped by the switch on port 6, sent out of the jacks (last txtest)
+txfwd() {
+	last | sed -n 's/.*dropped \([0-9]*\), jacks sent \([0-9]*\).*/\1 \2/p'
+}
+
+# TX VLAN search: the frames reach the switch but it drops them, i.e. it
+# does not see their 802.1Q tag.  Tries the rtknet TX descriptor variants
+# (ac8_tx_vlan) and keeps the one whose test frames leave through the jacks
+# (needs a device on a LAN jack).
+vlan_search() {
+	local m cur best="" bestj=0
+	cur=$(cat $RTK/ac8_tx_vlan 2>/dev/null)
+	for m in 1 2 3 0; do
+		echo "$m" > $RTK/ac8_tx_vlan 2>/dev/null || return 1
+		txtest 50 >/dev/null
+		set -- $(txfwd)
+		say "TX VLAN mode $m: switch dropped ${1:-?}, jacks sent ${2:-?} of 50"
+		if [ "${2:-0}" -gt "$bestj" ]; then
+			bestj=$2; best=$m
+		fi
+	done
+	if [ -n "$best" ]; then
+		echo "$best" > $RTK/ac8_tx_vlan
+		say "TX VLAN: using mode $best"
+		return 0
+	fi
+	echo "${cur:-1}" > $RTK/ac8_tx_vlan
+	say "TX VLAN: no mode got a frame out of a jack (is a PC on a LAN jack?)"
+	return 1
 }
 
 # rxtest: prints "switch_sent eth0_received"
@@ -258,6 +290,11 @@ do_boot() {
 			say "TX search: no SoC/switch delay pair passes"
 		fi
 	fi
+	set -- $(txfwd)
+	if [ "${1:-0}" -gt $((n / 10)) ]; then
+		say "TX: the switch drops the frames (802.1Q tag lost?); trying the TX VLAN modes"
+		vlan_search && { txtest $n >/dev/null; say "TX after VLAN search: $(last)"; }
+	fi
 	v=$(rx_verdict 10)
 	say "RX switch -> router (10 s): $v"
 	say "details: ac8-trunk; ac8-trunk test; ac8-trunk sweep"
@@ -268,7 +305,7 @@ do_boot() {
 case "${1:-}" in
 "")
 	cat "$PROC"
-	echo "soc-config (rtknet): tx_delay rx_delay pads: $(cur_soc)"
+	echo "soc-config (rtknet): tx_delay rx_delay pads: $(cur_soc), tx_vlan mode $(cat $RTK/ac8_tx_vlan 2>/dev/null)"
 	[ -f "$CONF" ] && echo "saved ($CONF): $(tr '\n' ' ' < "$CONF")"
 	;;
 test)	do_test ;;
@@ -284,10 +321,18 @@ sw)
 	wr "sw ${1:-} ${2:-}" || die "invalid values: sw TX(0-1) RX(0-7)"
 	grep '^sw' "$PROC"
 	;;
+vlan)
+	case "${2:-}" in
+	[0-3]) echo "$2" > $RTK/ac8_tx_vlan || die "cannot set ac8_tx_vlan" ;;
+	*) die "invalid value: vlan MODE(0-3)" ;;
+	esac
+	echo "tx_vlan mode $(cat $RTK/ac8_tx_vlan)"
+	;;
 save)
 	{
 		echo "soc $(cur_soc)"
 		echo "sw $(cur_sw)"
+		echo "vlan $(cat $RTK/ac8_tx_vlan 2>/dev/null)"
 	} > "$CONF"
 	echo "saved to $CONF: $(tr '\n' ' ' < "$CONF")"
 	;;
