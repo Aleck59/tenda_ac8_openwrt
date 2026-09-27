@@ -28,6 +28,10 @@ con() {
 	logger -t rtl8197f-wlan "$*"
 }
 
+meminfo() {
+	awk '/^(MemFree|MemAvailable):/ { printf "%s%s %d kB", s, $1, $2; s = ", " }' /proc/meminfo
+}
+
 report() {
 	local l
 	for l in $(sed -n 's/^\(init_phase\|last_phase\|init_rc\)=/&/p' "$LOG" 2>/dev/null); do
@@ -39,8 +43,9 @@ report() {
 		grep -E '"(radio[0-9]*|up|pending|autostart|disabled|retry_setup_failed)"|"errors"|^[[:space:]]*"[A-Z_]+",?$' |
 		tr -d '\t,' | while read -r l; do con "status: $l"; done
 	logread -e hostapd 2>/dev/null | tail -n 6 | while read -r l; do con "log: ${l#* * * * * }"; done
-	dmesg | grep -iE 'rtl8192cd|8812f|8197f-w|phydm|halmac|wlan[01]' | tail -n 10 |
+	dmesg | grep -iE 'rtl8192cd|8812f|8197f-w|phydm|halmac|wlan[01]|oom|Out of memory' | tail -n 10 |
 		while read -r l; do con "dmesg: $l"; done
+	con "memory: $(meminfo)"
 }
 
 start() {
@@ -75,14 +80,17 @@ start() {
 	con "loading the driver, mode $mode"
 
 	(
+		# An OOM kill of this shell would leave $GUARD behind and the
+		# next boot would take the mode for a crash (build 23: dual).
+		echo -1000 > /proc/self/oom_score_adj 2>/dev/null
 		echo "$mode" > "$GUARD"
 		sync
-		# The driver needs one physically contiguous 1.4 MB block per
-		# radio (struct rtl8192cd_hw, an order-9 allocation): free the
-		# page cache and compact memory first.
+		# The driver allocates a few physically contiguous blocks per
+		# radio (struct rtl8192cd_hw, the descriptor rings, 128-512 KB
+		# each): free the page cache and compact memory first.
 		echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 		echo 1 > /proc/sys/vm/compact_memory 2>/dev/null
-		con "memory: $(sed -n 's/^MemFree: *//p' /proc/meminfo) free, free blocks by order: $(sed -n 's/^Node 0, zone *Normal *//p' /proc/buddyinfo | tr -s ' ')"
+		con "memory: $(meminfo), free blocks by order: $(sed -n 's/^Node 0, zone *Normal *//p' /proc/buddyinfo | tr -s ' ')"
 		/usr/sbin/rtl8197f-wlan-load --"$mode" >"$LOG" 2>&1
 		rc=$?
 		# Killed by an oops, or stuck in its init: not this mode again.

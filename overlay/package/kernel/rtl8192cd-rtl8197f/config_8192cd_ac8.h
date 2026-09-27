@@ -15,6 +15,13 @@
  * - CONFIG_RTL8197F_WMAC_PLATFORM: the integrated radio is probed from
  *   its DT node (realtek,rtl8197f-wmac) and gets a device for the DMA
  *   API, see 8192cd_osdep.c.
+ * - AC8_NUM_*: ring sizes for 64 MB of RAM (8192cd_cfg.h).  The vendor
+ *   values for this radio pair (TX 1024, RX 1024 on 5 GHz and 400 on
+ *   2.4 GHz) meant ~11 MB of 8 KB RX buffers plus, per radio, a 1.4 MB
+ *   struct rtl8192cd_hw (seven tx_info[NUM_TX_DESC] arrays, a 2 MB
+ *   block) and a 1 MB descriptor block: hostapd hit the OOM killer and
+ *   the two-radio load did not finish.  RX 256/128 are the sizes of the
+ *   vendor's CONFIG_RTL_SHRINK_MEMORY_SIZE build for the 8197F.
  */
 #ifndef __AC8_CONFIG_8192CD_H__
 #define __AC8_CONFIG_8192CD_H__
@@ -48,4 +55,7 @@
 #define _LITTLE_ENDIAN_ 1
 #define NOT_RTK_BSP 1
 #define CONFIG_MW5_NO_LED 1
+#define AC8_NUM_TX_DESC 256
+#define AC8_NUM_RX_DESC 256
+#define AC8_NUM_RX_DESC_2G 128
 #endif

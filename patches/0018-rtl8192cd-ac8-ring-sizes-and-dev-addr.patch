@@ -1,0 +1,144 @@
+Subject: [PATCH] rtl8192cd: board ring sizes, set dev_addr through eth_hw_addr_set()
+
+On the Tenda AC8 (64 MB of RAM) hostapd bringing up the 5 GHz radio
+ended in
+
+  PrepareRXBD88XX(464):size=606144 ...
+  PrepareRXBDHandler fail
+  ERROR : rtl8192cd_init_sw failure
+  Out of memory: Killed process (hostapd)
+
+and the load of both radios did not finish at all.  With CONFIG_WLAN_HAL_8812FE
+and NOT_RTK_BSP the driver takes NUM_TX_DESC 1024, NUM_RX_DESC 1024 and
+NUM_RX_DESC_2G 400: 1424 RX buffers of 4000 bytes (8 KB slab objects
+each, ~11 MB) and, per radio, a 1.4 MB struct rtl8192cd_hw (seven
+tx_info[NUM_TX_DESC] arrays of 192-byte entries, an order-9 block), a
+600 KB descriptor block and TX header pools of up to 370 KB, all
+physically contiguous.  8192cd_cfg.h now takes the three ring sizes
+from AC8_NUM_TX_DESC, AC8_NUM_RX_DESC and AC8_NUM_RX_DESC_2G when the
+board's config_8192cd.h defines them.  Every threshold of the TX and RX
+paths is derived from these macros.
+
+Linux 5.17+ keeps a copy of dev->dev_addr for the device address list.
+The driver copied the MAC address straight into dev->dev_addr (in
+ndo_open and in ndo_set_mac_address, which hostapd calls for the BSSID),
+so each open warned "wlan0: Incorrect netdev->dev_addr" with a stack
+trace.  The writes on the paths this build compiles go through
+eth_hw_addr_set() now.
+
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_cfg.h
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_cfg.h
+@@ -3562,6 +3562,20 @@
+ #define NUM_RX_DESC_2G NUM_RX_DESC
+ #endif
+ 
++/* Ring sizes of a board with little RAM, from its config_8192cd.h */
++#ifdef AC8_NUM_TX_DESC
++#undef NUM_TX_DESC
++#define NUM_TX_DESC AC8_NUM_TX_DESC
++#endif
++#ifdef AC8_NUM_RX_DESC
++#undef NUM_RX_DESC
++#define NUM_RX_DESC AC8_NUM_RX_DESC
++#endif
++#ifdef AC8_NUM_RX_DESC_2G
++#undef NUM_RX_DESC_2G
++#define NUM_RX_DESC_2G AC8_NUM_RX_DESC_2G
++#endif
++
+ 
+ 
+ 
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_osdep.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_osdep.c
+@@ -9709,6 +9709,20 @@
+ #endif
+ }
+ #endif
++/*
++ * Linux 5.17+ keeps a copy of dev->dev_addr and warns ("Incorrect
++ * netdev->dev_addr") on the next open when a driver wrote the address
++ * directly, as this one did on every SIOCSIFHWADDR from hostapd.
++ */
++static inline void rtl8192cd_dev_addr_set(struct net_device *dev, const unsigned char *addr)
++{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
++	eth_hw_addr_set(dev, addr);
++#else
++	memcpy((void *)dev->dev_addr, addr, MACADDRLEN);
++#endif
++}
++
+ #if defined(CONFIG_ARCH_RTL8198F) && !defined(CONFIG_RTL8198F_WLAN_MODULE)
+ void (*_hook_func_rtk_rg_wlan_netDevice_set_wlan_static)(void) = NULL;
+ EXPORT_SYMBOL(_hook_func_rtk_rg_wlan_netDevice_set_wlan_static);
+@@ -9760,7 +9774,7 @@
+ 
+ 	closeopenlog("[%s]",dev->name);
+ 
+-	memcpy((void *)dev->dev_addr, priv->pmib->dot11OperationEntry.hwaddr, 6);
++	rtl8192cd_dev_addr_set(dev, priv->pmib->dot11OperationEntry.hwaddr);
+ 
+ #if defined(CONFIG_PE_ENABLE)
+ #if 1
+@@ -10910,7 +10924,7 @@
+    			GET_HAL_INTERFACE(priv)->McloneSetMBSSIDHandler(priv, macAddr, -1);		
+ 		} else {
+ 			pu1Byte hwaddr = GET_ROOT(priv)->pmib->dot11OperationEntry.hwaddr;
+-			memcpy(priv->dev->dev_addr, hwaddr, MACADDRLEN);
++			rtl8192cd_dev_addr_set(priv->dev, hwaddr);
+ 			memcpy(priv->pmib->dot11OperationEntry.hwaddr, hwaddr, MACADDRLEN);
+ 		}
+ 	}
+@@ -11987,7 +12001,7 @@
+ 	ACTIVE_ID = 0;
+ #endif
+ 
+-	memcpy(priv->dev->dev_addr, p, MACADDRLEN);
++	rtl8192cd_dev_addr_set(priv->dev, p);
+ 	memcpy(GET_MY_HWADDR, p, MACADDRLEN);
+ #if defined(RTK_NL80211)
+ 	//brian, for setup MAC address from calibration at flash only during system initialization
+@@ -12015,7 +12029,7 @@
+ #ifdef WDS
+ 	for (i=0; i<NUM_WDS; i++)
+ 		if (priv->wds_dev[i])
+-			memcpy(priv->wds_dev[i]->dev_addr, p, MACADDRLEN);
++			rtl8192cd_dev_addr_set(priv->wds_dev[i], p);
+ #endif
+ #ifdef CONFIG_RTK_MESH
+ 	if(NUM_MESH > 0)
+@@ -12044,7 +12058,7 @@
+ 			if (!priv->pshare->use_vxd_diff_mac)
+ #endif
+ 			{
+-				memcpy(GET_VXD_PRIV(priv)->dev->dev_addr, p, MACADDRLEN);
++				rtl8192cd_dev_addr_set(GET_VXD_PRIV(priv)->dev, p);
+ 				memcpy(GET_VXD_PRIV(priv)->pmib->dot11OperationEntry.hwaddr, p, MACADDRLEN);
+ #if defined(VXD_DIFF_MAC_DRV)
+ 				{
+@@ -12052,7 +12066,7 @@
+ 					macAddr[4] ^= macAddr[3] ^ 0xca;
+ 					macAddr[5] ^= macAddr[3] ^ 0xac;
+ 					macAddr[0] |= BIT1;
+-					memcpy(GET_VXD_PRIV(priv)->dev->dev_addr, macAddr, MACADDRLEN);
++					rtl8192cd_dev_addr_set(GET_VXD_PRIV(priv)->dev, macAddr);
+ 				}
+ #endif
+ 			}
+@@ -12067,12 +12081,12 @@
+ #else
+ #if defined(VXD_DIFF_MAC_DRV)
+ 		if(priv->pmib->ethBrExtInfo.macclone_enable ){
+-			memcpy(priv->dev->dev_addr, p, MACADDRLEN);
++			rtl8192cd_dev_addr_set(priv->dev, p);
+ 			memcpy(priv->pmib->dot11OperationEntry.hwaddr, p, MACADDRLEN);
+ 		} else
+ #endif
+ 		{
+-			memcpy(GET_ROOT(priv)->dev->dev_addr, p, 6);
++			rtl8192cd_dev_addr_set(GET_ROOT(priv)->dev, p);
+ 			memcpy(GET_ROOT(priv)->pmib->dot11OperationEntry.hwaddr, p, 6);
+ 		}
+ #endif
