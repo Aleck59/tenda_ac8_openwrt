@@ -37,6 +37,9 @@ SOC_RX_ORDER="7 6 5 4 3 2 1 0"
 SW_TX_ORDER="0 1"
 
 CONSOLE=0
+SWDEV=switch0
+LAN_LINK=0
+WAN_LINK=0
 
 say() {
 	echo "$*" | tee -a "$LOG"
@@ -60,8 +63,10 @@ Usage: ac8-trunk [command]
                (0 stock AC8, 1 RD05)
   sw TX RX     set the switch EXT1 delays (TX 0-1, RX 0-7)
   vlan MODE    rtknet 802.1Q TX descriptor variant (0-3, default 1)
-  boot         boot check: test, search the TX delays if TX fails (no PC
-               needed), print the result on the serial console
+  vlan search  try the four variants (a PC on a LAN jack, nothing on WAN)
+  jacks        which switch ports have a link, and their VLAN (LAN/WAN)
+  boot         boot check: jacks, test, search the TX delays if TX fails (no
+               PC needed), print the result on the serial console
   save         keep the current values across reboots
   reset        forget the saved values (firmware defaults after reboot)
 
@@ -123,10 +128,45 @@ txfwd() {
 	last | sed -n 's/.*dropped \([0-9]*\), jacks sent \([0-9]*\).*/\1 \2/p'
 }
 
+# vid_of_port P: VLAN of the switch_vlan section that has jack P
+vid_of_port() {
+	uci -q show network | awk -F"'" -v p="$1" '
+		/^network\.[^.]*\.vlan=/ { split($1, a, "."); vid[a[2]] = $2 }
+		/^network\.[^.]*\.ports=/ { split($1, a, "."); ports[a[2]] = " " $2 " " }
+		END { for (s in ports) if (s in vid && index(ports[s], " " p " ")) { print vid[s]; exit } }'
+}
+
+# jacks: print the switch ports 0-4 that have a link and their role; sets
+# LAN_LINK and WAN_LINK.  In the stock firmware as here the WAN jack is
+# switch port 4 (wan_port = 4 in its switch driver).
+jacks() {
+	local p l v sp role wan_vid
+	LAN_LINK=0; WAN_LINK=0
+	wan_vid=$(uci -q get network.wan.device | sed -n 's/^eth0\.\([0-9]*\)$/\1/p')
+	for p in 0 1 2 3 4; do
+		l=$(swconfig dev $SWDEV port $p get link 2>/dev/null)
+		case "$l" in *link:up*) ;; *) continue ;; esac
+		sp=$(echo "$l" | sed -n 's/.*speed:\([^ ]*\).*/\1/p')
+		v=$(vid_of_port $p)
+		if [ -n "$v" ] && [ "$v" = "$wan_vid" ]; then
+			role="WAN (VLAN $v, eth0.$v)"; WAN_LINK=1
+		elif [ -n "$v" ]; then
+			role="LAN (VLAN $v, eth0.$v)"; LAN_LINK=1
+		else
+			role="in no VLAN"
+		fi
+		say "jack: switch port $p link up ${sp:-?}, $role"
+	done
+	[ $LAN_LINK = 1 ] || [ $WAN_LINK = 1 ] || say "jack: no link on switch ports 0-4"
+	return 0
+}
+
 # TX VLAN search: the frames reach the switch but it drops them, i.e. it
 # does not see their 802.1Q tag.  Tries the rtknet TX descriptor variants
-# (ac8_tx_vlan) and keeps the one whose test frames leave through the jacks
-# (needs a device on a LAN jack).
+# (ac8_tx_vlan) and keeps the one whose test frames leave through the jacks.
+# Only meaningful with a device on a LAN jack and none on WAN: untagged
+# frames go to VLAN 1, WAN, and would count as "out of a jack" there (build
+# 25 picked variant 0 that way with the PC on the WAN jack, which broke LAN).
 vlan_search() {
 	local m cur best="" bestj=0
 	cur=$(cat $RTK/ac8_tx_vlan 2>/dev/null)
@@ -276,7 +316,8 @@ do_boot() {
 	local n=200 v
 	CONSOLE=1
 	eth0_up || { say "eth0 is down, no check"; return 1; }
-	say "$(grep -E '^(soc|sw):' "$PROC" | tr '\n' ' ')"
+	say "$(grep -E '^(soc|sw):' "$PROC" | tr '\n' ' ')tx_vlan=$(cat $RTK/ac8_tx_vlan 2>/dev/null)"
+	jacks
 	set -- $(txtest $n)
 	say "$(last)"
 	if [ "${1:-0}" -ge $n ] && [ "${2:--1}" -eq 0 ]; then
@@ -290,14 +331,25 @@ do_boot() {
 			say "TX search: no SoC/switch delay pair passes"
 		fi
 	fi
+	# The test frames are LAN (VLAN 2) broadcasts: without a device on a
+	# LAN jack the switch has nowhere to send them and counts them dropped.
 	set -- $(txfwd)
-	if [ "${1:-0}" -gt $((n / 10)) ]; then
-		say "TX: the switch drops the frames (802.1Q tag lost?); trying the TX VLAN modes"
-		vlan_search && { txtest $n >/dev/null; say "TX after VLAN search: $(last)"; }
+	if [ $LAN_LINK = 1 ]; then
+		if [ "${1:-0}" -gt $((n / 10)) ]; then
+			say "TX router -> LAN jacks: FAIL, the switch dropped ${1} of $n (jacks sent ${2:-?}); try \"ac8-trunk vlan 2\", \"3\" or \"0\" by hand"
+		else
+			say "TX router -> LAN jacks: ok (jacks sent ${2:-?})"
+		fi
+	else
+		say "TX router -> LAN jacks: not checked, no device on a LAN jack"
 	fi
-	v=$(rx_verdict 10)
-	say "RX switch -> router (10 s): $v"
-	say "details: ac8-trunk; ac8-trunk test; ac8-trunk sweep"
+	if [ $LAN_LINK = 1 ] || [ $WAN_LINK = 1 ]; then
+		v=$(rx_verdict 10)
+		say "RX switch -> router (10 s): $v"
+	fi
+	[ $LAN_LINK = 1 ] || [ $WAN_LINK = 0 ] ||
+		say "only the WAN jack (switch port 4) has a link: the PC belongs on a LAN jack (DHCP server, LuCI at 192.168.1.1)"
+	say "details: ac8-trunk; ac8-trunk test; ac8-trunk jacks"
 }
 
 [ -w "$PROC" ] || die "$PROC not found (rtl8367b switch driver not loaded)"
@@ -311,6 +363,7 @@ case "${1:-}" in
 test)	do_test ;;
 sweep)	do_sweep ;;
 boot)	do_boot ;;
+jacks)	jacks ;;
 soc)
 	shift
 	soc_set "${1:-}" "${2:-}" "${3:-}" || die "invalid values: soc TX(0-1) RX(0-7) [PAD(0-1)]"
@@ -324,7 +377,13 @@ sw)
 vlan)
 	case "${2:-}" in
 	[0-3]) echo "$2" > $RTK/ac8_tx_vlan || die "cannot set ac8_tx_vlan" ;;
-	*) die "invalid value: vlan MODE(0-3)" ;;
+	search)
+		jacks
+		[ $LAN_LINK = 1 ] && [ $WAN_LINK = 0 ] ||
+			die "vlan search needs a PC on a LAN jack and nothing on the WAN jack"
+		vlan_search
+		;;
+	*) die "invalid value: vlan MODE(0-3) or vlan search" ;;
 	esac
 	echo "tx_vlan mode $(cat $RTK/ac8_tx_vlan)"
 	;;

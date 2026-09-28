@@ -1,0 +1,84 @@
+Subject: [PATCH] rtl8192cd: /proc/wlanN entries with struct proc_ops (Linux >= 5.6)
+
+On the Tenda AC8 "cat /proc/wlan0/sta_info" crashed the kernel:
+
+  Unable to handle kernel paging request at virtual address 00000028
+  epc mutex_lock+0x8/0x44, ra seq_lseek+0x4c/0x1b0
+  proc_reg_open+0x150/0x1e4 <- do_dentry_open <- sys_open
+
+Since Linux 5.6 proc_create_data() takes a struct proc_ops.  The driver's
+RTK_DECLARE_*_PROC_FOPS macros still defined a struct file_operations, and
+the package builds with -Wno-incompatible-pointer-types, so the mismatch
+went unnoticed: proc_open was the llseek slot (seq_lseek) and proc_write
+another wrong slot.  Every /proc/wlanN file had the problem.  On 5.6+ the
+macros now define a struct proc_ops.  The debugfs files keep their
+file_operations, which is what debugfs_create_file() takes.
+
+---
+--- a/package/kernel/rtl8192cd-rtl8197f/src/8192cd_proc.c
++++ b/package/kernel/rtl8192cd-rtl8197f/src/8192cd_proc.c
+@@ -75,6 +75,55 @@
+ }
+ #endif
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0)
++/*
++ * proc_create_data() takes a struct proc_ops since Linux 5.6.  Given a
++ * struct file_operations (the build hides the pointer type mismatch), the
++ * kernel called its llseek slot, seq_lseek(), as proc_open, and reading
++ * any /proc/wlanN file oopsed in mutex_lock().
++ */
++#define RTK_DECLARE_READ_PROC_FOPS(read_proc) \
++	int read_proc##_open(struct inode *inode, struct file *file) \
++	{ \
++			return(single_open(file, read_proc, PDE_DATA(file_inode(file)))); \
++	} \
++	struct proc_ops read_proc##_fops = { \
++			.proc_open		= read_proc##_open, \
++			.proc_read		= seq_read, \
++			.proc_lseek		= seq_lseek, \
++			.proc_release		= single_release, \
++	}
++
++#define RTK_DECLARE_WRITE_PROC_FOPS(write_proc) \
++	static ssize_t write_proc##_write(struct file * file, const char __user * userbuf, \
++		     size_t count, loff_t * off) \
++	{ \
++		return write_proc(file, userbuf,count, PDE_DATA(file_inode(file))); \
++	} \
++	struct proc_ops write_proc##_fops = { \
++			.proc_write		= write_proc##_write, \
++	}
++
++
++#define RTK_DECLARE_READ_WRITE_PROC_FOPS(read_proc,write_proc) \
++	static ssize_t read_proc##_write(struct file * file, const char __user * userbuf, \
++		     size_t count, loff_t * off) \
++	{ \
++		return write_proc(file, userbuf,count, PDE_DATA(file_inode(file))); \
++	} \
++	int read_proc##_open(struct inode *inode, struct file *file) \
++	{ \
++			return(single_open(file, read_proc, PDE_DATA(file_inode(file)))); \
++	} \
++	struct proc_ops read_proc##_fops = { \
++			.proc_open		= read_proc##_open, \
++			.proc_read		= seq_read, \
++			.proc_write		= read_proc##_write, \
++			.proc_lseek		= seq_lseek, \
++			.proc_release		= single_release, \
++	}
++
++#else
+ #define RTK_DECLARE_READ_PROC_FOPS(read_proc) \
+ 	int read_proc##_open(struct inode *inode, struct file *file) \
+ 	{ \
+@@ -117,6 +166,8 @@
+ 	}
+ 
+ 
++#endif
++
+ #define RTK_CREATE_PROC_ENTRY(name) \
+ { \
+ 		proc_create_data(name, 0644, rtl8192cd_proc_root, &rtl8192cd_proc_##name##_fops, NULL); \

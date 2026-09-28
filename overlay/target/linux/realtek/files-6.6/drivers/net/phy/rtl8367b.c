@@ -878,8 +878,14 @@ static int rtl8367b_extif_init_of(struct rtl8366_smi *smi,
  * reset of every swconfig "reset".
  */
 static struct rtl8366_smi *rtl8367_ac8_smi;
+static bool rtl8367_ac8_board;
 static int rtl8367_ac8_ext1_tx = -1;
 static int rtl8367_ac8_ext1_rx = -1;
+
+static bool ac8_soft_reset = true;
+module_param(ac8_soft_reset, bool, 0644);
+MODULE_PARM_DESC(ac8_soft_reset,
+	"Tenda AC8: swconfig reset keeps the chip and its links up (0: full chip reset, as upstream)");
 
 static const struct rtl8367b_initval rtl8367_ac8_oem_initvals[] = {
 	{0x1b24, 0x1f1f},	/* rtk_led_enable_set: LED IO, groups 0/1, ports 0-4 */
@@ -920,6 +926,7 @@ static int rtl8367_ac8_setup(struct rtl8366_smi *smi)
 		return 0;
 
 	if (of_property_read_bool(np, "realtek,rtl8197f-ac8-oem-init")) {
+		rtl8367_ac8_board = true;
 		err = rtl8367b_write_initvals(smi, rtl8367_ac8_oem_initvals,
 					      ARRAY_SIZE(rtl8367_ac8_oem_initvals));
 		if (err)
@@ -1861,6 +1868,80 @@ static struct switch_attr rtl8367b_vlan[] = {
 	},
 };
 
+/*
+ * Tenda AC8: preinit and netifd configure the switch after a swconfig
+ * "reset" (option reset 1), and rtl8366_sw_reset_switch() resets the chip
+ * and runs the whole init again: 1.2 s with every port down, so the jacks
+ * lost their link three times per boot (probe, preinit, netifd).  The probe
+ * did the full init already; later resets only put back what swconfig
+ * configures: VLANs (the 4K entries of the VIDs of the member
+ * configurations and of VIDs 1-15, the member configurations), PVIDs,
+ * port enable.
+ */
+static int rtl8367b_sw_reset_switch(struct switch_dev *dev)
+{
+	struct rtl8366_smi *smi = sw_to_rtl8366_smi(dev);
+	struct rtl8366_vlan_mc vlanmc;
+	struct rtl8366_vlan_4k vlan4k;
+	int err;
+	int i;
+
+	if (!rtl8367_ac8_board || smi != rtl8367_ac8_smi || !ac8_soft_reset)
+		return rtl8366_sw_reset_switch(dev);
+
+	err = smi->ops->enable_vlan(smi, 0);
+	if (err)
+		return err;
+	smi->vlan_enabled = 0;
+	smi->vlan4k_enabled = 0;
+
+	for (i = 0; i < smi->num_vlan_mc; i++) {
+		err = smi->ops->get_vlan_mc(smi, i, &vlanmc);
+		if (err)
+			return err;
+		if (vlanmc.vid) {
+			memset(&vlan4k, 0, sizeof(vlan4k));
+			vlan4k.vid = vlanmc.vid;
+			err = smi->ops->set_vlan_4k(smi, &vlan4k);
+			if (err)
+				return err;
+		}
+		memset(&vlanmc, 0, sizeof(vlanmc));
+		err = smi->ops->set_vlan_mc(smi, i, &vlanmc);
+		if (err)
+			return err;
+	}
+
+	/* VLANs with tagged members only have no member configuration */
+	for (i = 1; i < 16; i++) {
+		memset(&vlan4k, 0, sizeof(vlan4k));
+		vlan4k.vid = i;
+		err = smi->ops->set_vlan_4k(smi, &vlan4k);
+		if (err)
+			return err;
+	}
+
+	for (i = 0; i < smi->num_ports; i++) {
+		err = smi->ops->set_mc_index(smi, i, 0);
+		if (err)
+			return err;
+	}
+
+	err = smi->ops->enable_vlan(smi, 1);
+	if (err)
+		return err;
+	smi->vlan_enabled = 1;
+
+	for (i = 0; i < smi->num_ports; i++) {
+		err = smi->ops->enable_port(smi, i, 1);
+		if (err)
+			return err;
+	}
+
+	dev_info(smi->parent, "AC8: switch reset without a chip reset (links stay up)\n");
+	return 0;
+}
+
 static const struct switch_dev_ops rtl8367b_sw_ops = {
 	.attr_global = {
 		.attr = rtl8367b_globals,
@@ -1879,7 +1960,7 @@ static const struct switch_dev_ops rtl8367b_sw_ops = {
 	.set_vlan_ports = rtl8366_sw_set_vlan_ports,
 	.get_port_pvid = rtl8366_sw_get_port_pvid,
 	.set_port_pvid = rtl8366_sw_set_port_pvid,
-	.reset_switch = rtl8366_sw_reset_switch,
+	.reset_switch = rtl8367b_sw_reset_switch,
 	.get_port_link = rtl8367b_sw_get_port_link,
 	.get_port_stats = rtl8367b_sw_get_port_stats,
 };
