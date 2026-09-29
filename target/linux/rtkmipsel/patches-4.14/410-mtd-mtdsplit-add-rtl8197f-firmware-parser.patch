@@ -1,0 +1,24 @@
+From: Tenda AC8 OpenWrt port
+Subject: [PATCH] mtd: mtdsplit: add the Realtek RTL8197F firmware parser
+
+Split the "firmware" partition of a Realtek boot loader image (cs6c/cr6c
+header, loader and kernel, SquashFS) into kernel, rootfs and rootfs_data.
+
+--- a/drivers/mtd/mtdsplit/Kconfig
++++ b/drivers/mtd/mtdsplit/Kconfig
+@@ -74,3 +74,8 @@ config MTD_SPLIT_JIMAGE_FW
+ 	bool "JBOOT Image based firmware partition parser"
+ 	depends on MTD_SPLIT_SUPPORT
+ 	select MTD_SPLIT
++
++config MTD_SPLIT_RTL8197F_FW
++	bool "Realtek RTL8197F cr6c/cs6c firmware parser"
++	depends on MTD_SPLIT_SUPPORT
++	select MTD_SPLIT
+--- a/drivers/mtd/mtdsplit/Makefile
++++ b/drivers/mtd/mtdsplit/Makefile
+@@ -11,3 +11,4 @@ obj-$(CONFIG_MTD_SPLIT_EVA_FW) += mtdsplit_eva.o
+ obj-$(CONFIG_MTD_SPLIT_WRGG_FW) += mtdsplit_wrgg.o
+ obj-$(CONFIG_MTD_SPLIT_MINOR_FW) += mtdsplit_minor.o
+ obj-$(CONFIG_MTD_SPLIT_JIMAGE_FW) += mtdsplit_jimage.o
++obj-$(CONFIG_MTD_SPLIT_RTL8197F_FW) += mtdsplit_rtl8197f.o

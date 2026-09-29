@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Settings kept by a sysupgrade from the OpenWrt 24.10 builds of this port do
+# not fit this firmware: their LAN/WAN are VLANs of a swconfig switch
+# (eth0.1/eth0.2), their Wi-Fi is mac80211 and their LuCI theme is not
+# installed.  Start from the defaults of this firmware instead of a router
+# without LAN; the old files stay as *.24.10.
+#
+
+if grep -qE "eth0\.[0-9]|^config (switch|device)" /etc/config/network 2>/dev/null; then
+	mv /etc/config/network /etc/config/network.24.10
+	/bin/config_generate
+fi
+
+if grep -q "mac80211" /etc/config/wireless 2>/dev/null; then
+	mv /etc/config/wireless /etc/config/wireless.24.10
+	/sbin/wifi config
+fi
+
+theme="$(uci -q get luci.main.mediaurlbase)"
+if [ -n "$theme" ] && [ ! -d "/www$theme" ]; then
+	uci set luci.main.mediaurlbase=/luci-static/bootstrap
+	uci commit luci
+fi
+
+exit 0

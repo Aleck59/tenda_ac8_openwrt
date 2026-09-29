@@ -1,0 +1,28 @@
+Subject: [PATCH] include: package-ipkg: build the .provides file after the ipk
+
+From the HH71VM port: one recipe for two outputs ran twice in parallel builds.
+
+---
+diff --git a/include/package-ipkg.mk b/include/package-ipkg.mk
+index 581987b..0f82da1 100644
+--- a/include/package-ipkg.mk
++++ b/include/package-ipkg.mk
+@@ -195,7 +195,7 @@ $(_endef)
+     $$(IPKG_$(1)) : export CONTROL=$$(Package/$(1)/CONTROL)
+     $$(IPKG_$(1)) : export DESCRIPTION=$$(Package/$(1)/description)
+     $$(IPKG_$(1)) : export PATH=$$(TARGET_PATH_PKG)
+-    $(PKG_INFO_DIR)/$(1).provides $$(IPKG_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-ipkg.mk
++    $$(IPKG_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-ipkg.mk
+ 	@rm -rf $$(IDIR_$(1)); \
+ 		$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_ipkg_wildcard,$(1))))
+ 	mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1))/CONTROL $(PKG_INFO_DIR)
+@@ -264,6 +264,9 @@ $(_endef)
+ 	$(IPKG_BUILD) $$(IDIR_$(1)) $$(PDIR_$(1))
+ 	@[ -f $$(IPKG_$(1)) ]
+ 
++    $(PKG_INFO_DIR)/$(1).provides: $$(IPKG_$(1))
++	@[ -f $$@ ]
++
+     $(1)-clean:
+ 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_ipkg_wildcard,$(1))))
+ 

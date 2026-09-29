@@ -1,0 +1,123 @@
+Subject: [PATCH] rtkmipsel: rtl819x: RTL8367RB of the Tenda AC8 v1
+
+The Tenda AC8 v1 has an RTL8367RB-VB on P0 (RGMII) of the RTL8197FH-VG, driven
+by the Realtek SDK code (CONFIG_RTL_8367R_SUPPORT, rtl8367r/ from the AC10U
+fork) as by the stock firmware.  Its SMI is on GPIO H0 (MDC) / G7 (MDIO)
+(CONFIG_RTL_MDC_H0_MDIO_G7), there is no reset GPIO, and the P0 pads and RX
+delay are the values of the stock init_8197f_p0().
+
+The rtknet of SDK v3.6.0 expects a newer switch API than rtl8367r/: build
+rtl8367r_sdk36.c with the functions it calls, declare rtk_port_phyReg_get()
+in rtl_nic.c, and keep the ACL code (rtl_acl.c) to the rtl83xx/ API.
+
+---
+diff --git a/target/linux/rtkmipsel/files/drivers/net/rtl819x/AsicDriver/rtl865x_asicL2.c b/target/linux/rtkmipsel/files/drivers/net/rtl819x/AsicDriver/rtl865x_asicL2.c
+index 0969604..dc87b0a 100644
+--- a/target/linux/rtkmipsel/files/drivers/net/rtl819x/AsicDriver/rtl865x_asicL2.c
++++ b/target/linux/rtkmipsel/files/drivers/net/rtl819x/AsicDriver/rtl865x_asicL2.c
+@@ -6508,6 +6508,31 @@ void init_8367r(void)
+ 		if (ret == 0) 
+ 			break;
+ 	}
++#elif defined(CONFIG_RTL_8197F) && defined(CONFIG_RTL_MDC_H0_MDIO_G7)
++	/*
++	 * Tenda AC8 v1: SMI on GPIO H0 (MDC) and G7 (MDIO), and no reset line
++	 * of the RTL8367RB on a GPIO: RTL8367R_init() starts with a chip
++	 * reset, as the stock firmware does.  The pins other than P0RXC keep
++	 * the function the boot loader gave them.
++	 */
++	int ret, i;
++
++	for (i=0; i<3; i++)
++	{
++		if (IS_8197F_VG())
++			REG32(PIN_MUX_SEL2) &= ~(0xF << 16); // set BIT_REG_IOCFG_P0RXC to MII mode
++
++		// H0 [23:20] and G7 [27:24] of REG_PINMUX_13: 0011 = GPIO
++		REG32(PIN_MUX_SEL13) = (REG32(PIN_MUX_SEL13) & ~(0xFF << 20)) | (0x33 << 20);
++
++		smi_init_83xx(GPIO_PORT_H, GPIO_PORT_G, 0, 7);
++		mdelay(10);
++		ret = RTL8367R_init();
++		if (ret == 0)
++			break;
++		printk("RTL8367R init failed (%d), retry %d\n", ret, i + 1);
++		mdelay(1000);
++	}
+ #elif defined(CONFIG_RTL_8197F)
+ 	#undef GPIO_RESET
+ 	#define GPIO_RESET	26		// GPIO_H2
+@@ -7223,12 +7248,26 @@ void init_8197f_p0(void)
+ 	REG32(PITCR) |= (1<<0);   //00: embedded , 01L GMII/MII/RGMII
+ 	REG32(MACCR) |= (1<<12);   //giga link		
+ 
++#if defined(CONFIG_RTL_MDC_H0_MDIO_G7)
++	/*
++	 * Tenda AC8 v1: the values of the stock init_8197f_p0(), pads
++	 * (v & 0x01bfffff) | 0xd8000000 (drive 6/6, RGMII_MODE and TX_E2
++	 * clear, bit 21 as the boot loader left it) and RX delay 7.  With
++	 * RGMII_MODE and TX_E2 set, most frames from the SoC never reached the
++	 * RTL8367RB.
++	 */
++	if (IS_8197F_VG()) {
++		REG32(PAD_CTRL_1) = (REG32(PAD_CTRL_1) & 0x01bfffff) | 0xd8000000;
++		REG32(P0GMIICR) = (REG32(P0GMIICR) & ~(0x7)) | (0x7);
++	}
++#else
+ 	if (IS_8197F_VG()) {
+ 		REG32(PAD_CTRL_1) = (REG32(PAD_CTRL_1) & ~(PAD_P0_RGMII_DN_MASK|PAD_P0_RGMII_DP_MASK))
+ 					| (0x6 << PAD_P0_RGMII_DN_OFFSET) | (0x6 << PAD_P0_RGMII_DP_OFFSET)
+ 					| PAD_P0_RGMII_MODE_MASK | PAD_P0_TX_E2_MASK | (0x1<<21);
+ 		REG32(P0GMIICR) = (REG32(P0GMIICR) & ~(0x7)) | (0x6);
+ 	}
++#endif
+ 	else {
+ 		REG32(PAD_CTRL_1) = (REG32(PAD_CTRL_1) & ~(PAD_P0_RGMII_DN_MASK|PAD_P0_RGMII_DP_MASK|PAD_P0_RGMII_MODE_MASK|PAD_P0_TX_E2_MASK))
+ 					| (0x6 << PAD_P0_RGMII_DN_OFFSET) | (0x6 << PAD_P0_RGMII_DP_OFFSET);
+diff --git a/target/linux/rtkmipsel/files/drivers/net/rtl819x/Kconfig b/target/linux/rtkmipsel/files/drivers/net/rtl819x/Kconfig
+index be74b67..8e973b6 100644
+--- a/target/linux/rtkmipsel/files/drivers/net/rtl819x/Kconfig
++++ b/target/linux/rtkmipsel/files/drivers/net/rtl819x/Kconfig
+@@ -454,10 +454,13 @@ config RTL_HARDWARE_NAT
+ 	depends on RTL_819X
+ 	depends on RTL_8196CT || RTL_8198 || RTL8198T || RTL_8198C || RTL_8197F
+ 	
++# Not with RTL_8367R_SUPPORT: rtl_acl.c does not build against the rtl8367r/
++# API (RTL_RANGE_MAX, rtl8367b_setAsicShareMeter), and the AC10U fork, whose
++# rtl8367r/ this is, had no ACL support either.
+ config RTL_83XX_ACL_SUPPORT
+ 	bool
+ 	default y
+-	depends on RTL_8367R_SUPPORT || RTL_83XX_SUPPORT
++	depends on RTL_83XX_SUPPORT
+ 	
+ 
+ #config RTL865x_TCPFLOW_NONE_STATUS_CHECK
+diff --git a/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl8367r/Makefile b/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl8367r/Makefile
+index c8029a4..eacee8b 100755
+--- a/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl8367r/Makefile
++++ b/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl8367r/Makefile
+@@ -40,7 +40,8 @@ obj-y := \
+     rtl8367b_asicdrv_svlan.o \
+     rtl8367b_asicdrv_trunking.o \
+     rtl8367b_asicdrv_unknownMulticast.o \
+-    rtl8367b_asicdrv_vlan.o
++    rtl8367b_asicdrv_vlan.o \
++    rtl8367r_sdk36.o
+ 
+ #EXTRA_CFLAGS += -O1 -DRTL_TBLDRV -D__linux__  -mno-memcpy -DRTL865X_OVER_KERNEL -DRTL865X_OVER_LINUX -Werror
+ EXTRA_CFLAGS += -O1 -DRTL_TBLDRV -D__linux__  -mno-memcpy -DRTL865X_OVER_KERNEL -DRTL865X_OVER_LINUX -Wno-implicit
+diff --git a/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl_nic.c b/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl_nic.c
+index 4a4b83b..5dd935a 100644
+--- a/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl_nic.c
++++ b/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl_nic.c
+@@ -179,6 +179,9 @@ extern uint32 mirrorPort_txmask;
+ #include "rtl8367r/rtk_types.h"
+ extern int rtk_stp_mstpState_set(int msti, int port, int stp_state);
+ #define switch_rtk_stp_mstpState_set(msti, port, stp_state) 	rtk_stp_mstpState_set(msti, port, stp_state);
++/* Declared in rtl8367r/rtk_api_ext.h, whose other declarations clash with
++ * this file (see rtk_stp_mstpState_set above). */
++extern int rtk_port_phyReg_get(rtk_uint32 port, rtk_uint32 reg, rtk_uint32 *pData);
+ #elif defined(CONFIG_RTL_83XX_SUPPORT)
+ #if defined(CONFIG_RTL_83XX_API_V1_4)
+ #include "rtl83xx_v1dot4/rtk_types.h"

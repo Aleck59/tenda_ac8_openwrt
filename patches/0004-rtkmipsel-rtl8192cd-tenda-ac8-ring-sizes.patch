@@ -1,0 +1,31 @@
+Subject: [PATCH] rtkmipsel: rtl8192cd: ring sizes for the 64 MB of the Tenda AC8
+
+TX 512, RX 512 (5 GHz) and 256 (2.4 GHz) instead of 1280/1024/400.
+
+---
+diff --git a/target/linux/rtkmipsel/files/drivers/net/wireless/realtek/rtl8192cd/8192cd_cfg.h b/target/linux/rtkmipsel/files/drivers/net/wireless/realtek/rtl8192cd/8192cd_cfg.h
+index 43daf19..9a494a1 100644
+--- a/target/linux/rtkmipsel/files/drivers/net/wireless/realtek/rtl8192cd/8192cd_cfg.h
++++ b/target/linux/rtkmipsel/files/drivers/net/wireless/realtek/rtl8192cd/8192cd_cfg.h
+@@ -3434,6 +3434,21 @@
+ #define NUM_RX_DESC_2G NUM_RX_DESC
+ #endif
+ 
++/*
++ * Tenda AC8 v1: 64 MB of RAM for both radios.  The values above for the
++ * RTL8197F + RTL8812F pair (TX 1280, RX 1024 on 5 GHz, 400 on 2.4 GHz) are
++ * sized for 128 MB boards: ~11 MB of RX buffers alone, and a struct
++ * rtl8192cd_hw of several MB per radio (tx_info[NUM_TX_DESC] arrays).
++ */
++#ifdef CONFIG_RTL8197_MACH_TENDA_AC8
++#undef NUM_RX_DESC_2G
++#undef NUM_RX_DESC
++#undef NUM_TX_DESC
++#define NUM_TX_DESC 512
++#define NUM_RX_DESC 512
++#define NUM_RX_DESC_2G 256
++#endif
++
+ 
+ 
+ 

@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# Tenda AC8 v1: the rtknet driver with the RTL8367RB (CONFIG_RTL_8367R_SUPPORT)
+# gives two interfaces: eth0 = LAN (switch ports 0-3, VLAN 9 on the trunk to
+# the SoC), eth1 = WAN (switch port 4, VLAN 8).  The switch is set up by the
+# driver, as by the stock firmware; there is no swconfig switch here.
+#
+
+. /lib/functions/system.sh
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+case "$(board_name)" in
+tenda,ac8-v1*)
+	ucidef_set_interfaces_lan_wan "eth0" "eth1"
+	# Tenda "FLSH" key=value store at 0x1c000 of the boot partition:
+	# et0macaddr is the label MAC (the stock firmware uses it for LAN and
+	# WAN), wl0_hwaddr/wl1_hwaddr belong to the 5/2.4 GHz radios.  eth0 and
+	# eth1 share the SoC switch core, so WAN gets the next address.
+	lan_mac=$(mtd_get_mac_ascii boot et0macaddr)
+	if [ -n "$lan_mac" ]; then
+		ucidef_set_interface_macaddr "lan" "$lan_mac"
+		ucidef_set_interface_macaddr "wan" "$(macaddr_add "$lan_mac" 1)"
+	fi
+	;;
+esac
+
+board_config_flush
+
+exit 0

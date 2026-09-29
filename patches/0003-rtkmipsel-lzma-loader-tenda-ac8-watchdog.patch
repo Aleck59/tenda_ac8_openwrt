@@ -1,0 +1,38 @@
+Subject: [PATCH] rtkmipsel: lzma-loader: stop the watchdog on the Tenda AC8
+
+The AC8 boot loader leaves the SoC watchdog running.
+
+---
+diff --git a/target/linux/rtkmipsel/image/lzma-loader/src/board.c b/target/linux/rtkmipsel/image/lzma-loader/src/board.c
+index 62fb161..6040a3b 100644
+--- a/target/linux/rtkmipsel/image/lzma-loader/src/board.c
++++ b/target/linux/rtkmipsel/image/lzma-loader/src/board.c
+@@ -65,6 +65,28 @@ void board_putc(int ch)
+ 	serial_outc(ch);
+ }
+ 
++#ifdef CONFIG_BOARD_TENDA_AC8
++/*
++ * The boot loader of the Tenda AC8 leaves the SoC watchdog running, and the
++ * kernel has no driver to feed it: stop it the way the Realtek SDK does
++ * (rtl819x_wdt_stop(): kick, then the disable magic).
++ */
++#define BSP_WDTCNR          0xB800311C
++#define BSP_WDT_CLEAR       0x00800000
++#define BSP_WDT_STOP        0xA5000000
++
++static void watchdog_stop(void)
++{
++	REG32(BSP_WDTCNR) = REG32(BSP_WDTCNR) | BSP_WDT_CLEAR;
++	__asm__ __volatile__("sync" : : : "memory");
++	REG32(BSP_WDTCNR) = BSP_WDT_STOP;
++	__asm__ __volatile__("sync" : : : "memory");
++}
++#endif
++
+ void board_init(void)
+ {
++#ifdef CONFIG_BOARD_TENDA_AC8
++	watchdog_stop();
++#endif
+ }

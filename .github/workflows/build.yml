@@ -1,23 +1,15 @@
-name: Build OpenWrt (Tenda AC8 v1)
+name: Build OpenWrt 19.07 (Tenda AC8 v1)
 
 on:
   workflow_dispatch:
     inputs:
-      devices:
-        description: "Profiles: tenda_ac8-v1-8m, tenda_ac8-v1-16m"
-        default: "tenda_ac8-v1-8m tenda_ac8-v1-16m"
-        type: string
       extra_packages:
-        description: "Extra packages for every image, space separated"
+        description: "Extra packages for the image, space separated"
         default: ""
         type: string
       release:
         description: "Publish the images as a GitHub release"
         default: true
-        type: boolean
-      packages:
-        description: "Also build every kernel module and publish the opkg feed <tag>-packages (~17 min more)"
-        default: false
         type: boolean
   push:
     branches: [main]
@@ -25,12 +17,10 @@ on:
       - ".github/workflows/build.yml"
       - "base.env"
       - "configs/**"
-      - "overlay/**"
+      - "target/**"
       - "patches/**"
       - "scripts/prepare.sh"
       - "scripts/configure.sh"
-      - "scripts/distfeeds.sh"
-      - "scripts/make-feed.sh"
       - "scripts/make-fullflash.py"
       - "boot/**"
 
@@ -44,25 +34,21 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DEVICES: ${{ inputs.devices || 'tenda_ac8-v1-8m tenda_ac8-v1-16m' }}
   EXTRA_PACKAGES: ${{ inputs.extra_packages || '' }}
-  # The package feed only on request (manual run, "packages"): kernel
-  # modules only install on the image built with them, see docs/packages.md.
-  PACKAGE_FEED: ${{ inputs.packages && inputs.release && '1' || '' }}
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    # OpenWrt 19.07 needs Python 2 and an older host compiler: Ubuntu 22.04
+    # (the build host of the HH71VM port).
+    runs-on: ubuntu-22.04
     timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Known before the build: images with a package feed name it in
-      # /etc/opkg/distfeeds.conf.
       - name: Release tag
         id: tag
-        run: echo "tag=ac8-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=ac8-19.07-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
         run: |
@@ -74,30 +60,19 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential clang flex bison g++ gawk \
-            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
-            python3-setuptools python3-pyelftools rsync swig unzip zlib1g-dev \
-            file wget zstd libelf-dev quilt xsltproc
+          sudo apt-get install -y -qq build-essential flex bison gawk gettext git \
+            libncurses-dev libssl-dev libelf-dev python2 python3 rsync unzip zip \
+            zlib1g-dev file wget curl time subversion swig perl pkg-config \
+            squashfs-tools xz-utils bzip2 patch diffutils libtool autoconf automake
 
       - name: Prepare source tree
         run: ./scripts/prepare.sh "$GITHUB_WORKSPACE/openwrt"
 
       - name: Configure
-        run: ./scripts/configure.sh openwrt "$DEVICES" "$EXTRA_PACKAGES"
+        run: ./scripts/configure.sh openwrt "$EXTRA_PACKAGES"
 
-      # Kernel modules and the AC8 packages from the feed of this build, if
-      # it has one (published by packages.yml as <tag>-packages), the rest
-      # from the official OpenWrt release in configs/packages.env.
-      - name: Package feeds of the images
-        run: |
-          ./scripts/distfeeds.sh openwrt \
-            ${PACKAGE_FEED:+"https://github.com/$GITHUB_REPOSITORY/releases/download/${{ steps.tag.outputs.tag }}-packages"}
-
-      # Source archives only change with the base tree, the feeds and the
-      # patches: one cache per combination.  Host tools and the cross
-      # toolchain take ~35 of the ~55 minutes and depend only on the pinned
-      # base tree and on the target and compiler settings, not on packages
-      # or rootfs options.
+      # Host tools and the cross toolchain depend only on the pinned tree and
+      # on the target and compiler settings.
       - name: Cache keys
         id: cache-keys
         env:
@@ -106,36 +81,36 @@ jobs:
           sum=$( { cat base.env
             grep -E '^CONFIG_(TARGET_BOARD|TARGET_SUBTARGET|TARGET_ARCH_PACKAGES|CPU_TYPE|ARCH|TARGET_OPTIMIZATION|EXTRA_OPTIMIZATION|SOFT_FLOAT|USE_MIPS16|USE_MUSL|USE_GLIBC|BINUTILS_|GCC_|LIBC|TARGET_SUFFIX|TOOLCHAINOPTS|EXTERNAL_TOOLCHAIN)' openwrt/.config
           } | sha256sum | cut -c1-40)
-          echo "dl=dl-$DL_HASH" >> "$GITHUB_OUTPUT"
-          echo "toolchain=toolchain-${{ runner.os }}-$sum" >> "$GITHUB_OUTPUT"
+          echo "dl=dl19-$DL_HASH" >> "$GITHUB_OUTPUT"
+          echo "toolchain=toolchain19-${{ runner.os }}-$sum" >> "$GITHUB_OUTPUT"
 
       - name: Cache downloads
         uses: actions/cache@v4
         with:
           path: openwrt/dl
           key: ${{ steps.cache-keys.outputs.dl }}
-          restore-keys: dl-
+          restore-keys: dl19-
 
       - name: Cache tools and toolchain
         id: cache-toolchain
         uses: actions/cache@v4
         with:
+          # 19.07 keeps the stamp of the host tools in the target staging dir.
           path: |
             openwrt/staging_dir/host
             openwrt/staging_dir/toolchain-*
+            openwrt/staging_dir/target-*/stamp/.tools_compile_*
           key: ${{ steps.cache-keys.outputs.toolchain }}
 
       # A fresh checkout makes every source file newer than the cached build
       # stamps; touch them so make treats the restored tools as up to date.
-      # Only plain "make" honours these stamps: an explicit
-      # "make tools/install" rebuilds every tool, so that step is skipped.
       - name: Mark cached tools and toolchain as built
         if: steps.cache-toolchain.outputs.cache-hit == 'true'
         working-directory: openwrt
-        run: find staging_dir/host/stamp staging_dir/toolchain-*/stamp -type f -exec touch {} +
+        run: find staging_dir/host/stamp staging_dir/toolchain-*/stamp staging_dir/target-*/stamp -type f -exec touch {} +
 
-      # Keep only the caches of the current keys; the ones they replace
-      # would otherwise stay until GitHub evicts them after a week unused.
+      # Keep only the caches of the current keys (and none of the OpenWrt
+      # 24.10 builds).
       - name: Delete superseded caches
         continue-on-error: true
         env:
@@ -148,7 +123,7 @@ jobs:
           while read -r id key; do
             case "$key" in
               "$DL_KEY"|"$TOOLCHAIN_KEY") ;;
-              dl-*|toolchain-*)
+              dl*|toolchain*)
                 echo "deleting $key"
                 gh cache delete "$id" --repo "$GITHUB_REPOSITORY" ;;
             esac
@@ -165,63 +140,35 @@ jobs:
           echo "CPU cores: $(nproc), RAM: $(free -g | awk '/Mem:/ {print $2}') GiB"
           make -j"$(nproc)" tools/install toolchain/install || make -j1 V=s tools/install toolchain/install
 
-      # IGNORE_ERRORS=m: a kernel module that does not build for this
-      # target is left out of the feed instead of failing the run.  The
-      # packages of the images are =m too (per-device rootfs), but a missing
-      # one still fails the image step.
       - name: Build firmware
         working-directory: openwrt
         run: |
           set -o pipefail
-          echo "CPU cores: $(nproc), toolchain from cache: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}"
-          make -j"$(nproc)" IGNORE_ERRORS=m 2>&1 | tee build.log || make -j1 V=s IGNORE_ERRORS=m
-          grep -oE 'ERROR: package/.* failed to build.*' build.log | sort -u |
-            sed 's/^/::warning::/' || true
+          make -j"$(nproc)" 2>&1 | tee build.log || make -j1 V=s
 
-      # The release carries only what gets written to the router: the full
-      # chip image with the boot loader (built from flash.bin) and the
-      # sysupgrade image for LuCI.
+      # The release carries what gets written to the router: the full chip
+      # image with the boot loader (from flash.bin), flash.bin itself (for the
+      # boot loader or a programmer, at 0x20000) and sysupgrade.bin for LuCI.
       - name: Collect images
         run: |
-          src=openwrt/bin/targets/realtek/rtl8197f
+          src=openwrt/bin/targets/rtkmipsel/rtl8197f
+          ls -l "$src"
           mkdir -p out
-          for dev in $DEVICES; do
-            fw=$(ls "$src"/*-rtl8197f-"$dev"-squashfs-flash.bin 2>/dev/null) ||
-              { echo "::warning::no flash image for $dev (probably does not fit the flash)"; continue; }
-            cp "$src"/*-rtl8197f-"$dev"-squashfs-sysupgrade.bin out/ ||
-              { echo "::error::no sysupgrade image for $dev"; exit 1; }
-            case "$dev" in
-              *-16m) size=16M ;;
-              *-8m) size=8M ;;
-              *) size=4M ;;
-            esac
-            # Full chip image with the owner's boot loader (first 128 KiB of
-            # the stock dump), only when it is in the repository.
+          for size in 8m 16m; do
+            fw=$(ls "$src"/*-tenda_ac8-v1-$size-squashfs-flash.bin) ||
+              { echo "::error::no flash image for $size"; exit 1; }
+            cp "$fw" "$src"/*-tenda_ac8-v1-$size-squashfs-sysupgrade.bin out/
             if [ -f boot/tenda_ac8-v1-boot.bin ]; then
               full="out/$(basename "${fw%-squashfs-flash.bin}")-fullflash.bin"
               python3 scripts/make-fullflash.py --boot boot/tenda_ac8-v1-boot.bin \
-                --firmware "$fw" --size "$size" --output "$full"
+                --firmware "$fw" --size "${size^^}" --output "$full"
               rm -f "$full.layout"
             else
-              echo "::notice::boot/tenda_ac8-v1-boot.bin is not in the repository, no fullflash image for $dev"
+              echo "::notice::boot/tenda_ac8-v1-boot.bin is not in the repository, no fullflash image"
             fi
           done
-          ls out/*.bin >/dev/null 2>&1 || { echo "::error::no firmware images"; exit 1; }
           {
             cat docs/release-notes.md
-            echo
-            if [ -n "$PACKAGE_FEED" ]; then
-              echo "**Пакеты.** \`opkg\` и **Система → Программное обеспечение** в LuCI"
-              echo "берут модули ядра из релиза \`${{ steps.tag.outputs.tag }}-packages\`"
-              echo "(появляется через 10–15 минут после этого релиза), остальное — из"
-              echo "официального OpenWrt $(sed -n 's/^PACKAGES_RELEASE=//p' configs/packages.env) (\`mipsel_24kc\`)."
-            else
-              echo "**Пакеты.** Программы ставятся из официального OpenWrt"
-              echo "$(sed -n 's/^PACKAGES_RELEASE=//p' configs/packages.env) (\`mipsel_24kc\`). Модулей ядра для этой"
-              echo "сборки нет: они собираются только по запросу (ручной запуск"
-              echo "сборки с отметкой **packages**)."
-            fi
-            echo "Подробнее — [docs/packages.md](https://github.com/$GITHUB_REPOSITORY/blob/main/docs/packages.md)."
             echo
             echo '### SHA-256'
             echo
@@ -230,24 +177,12 @@ jobs:
             echo '```'
           } > release-body.md
           ls -l out
-          if [ -n "$PACKAGE_FEED" ]; then
-            ./scripts/make-feed.sh openwrt feed
-          fi
 
       - name: Upload images
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-tenda-ac8-${{ github.run_number }}
+          name: openwrt-19.07-tenda-ac8-${{ github.run_number }}
           path: out/
-
-      # Published by the packages job below.
-      - name: Upload package feed
-        if: env.PACKAGE_FEED == '1'
-        uses: actions/upload-artifact@v4
-        with:
-          name: packages-${{ steps.tag.outputs.tag }}
-          path: feed/
-          retention-days: 14
 
       - name: Upload build logs
         if: failure()
@@ -257,6 +192,7 @@ jobs:
           path: |
             openwrt/logs/
             openwrt/.config
+            openwrt/build.log
           if-no-files-found: ignore
 
       - name: Publish release
@@ -265,16 +201,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: OpenWrt 24.10 для Tenda AC8 v1 (${{ steps.tag.outputs.tag }})
+          name: OpenWrt 19.07 для Tenda AC8 v1 (${{ steps.tag.outputs.tag }})
           prerelease: true
           body_path: release-body.md
           files: out/*.bin
-
-  # Only with the "packages" input (see PACKAGE_FEED), after the release
-  # of the images.
-  packages:
-    needs: build
-    if: inputs.packages && inputs.release
-    uses: ./.github/workflows/packages.yml
-    with:
-      run_id: ${{ github.run_id }}
