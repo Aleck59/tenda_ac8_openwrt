@@ -1,7 +1,10 @@
 Subject: [PATCH] rtkmipsel: rtl8197f: Tenda AC8 v1 machine instead of the HH71VM
 
 Build mach-tenda-ac8.c (LEDs, reset button) as the only machine of the target,
-and start the early console at 115200, the speed of the AC8 console.
+and start the early console at 115200, the speed of the AC8 console.  The
+RTL8197FH-VG takes the VG UART registers for every chip ID but that of the
+plain RTL8197F, and the RAM size falls back to the 64 MB of the AC8 when the
+bond option register is not in the table (the loader passes mem=64M too).
 
 ---
 diff --git a/target/linux/rtkmipsel/files/arch/mips/rtl8197f/Kconfig b/target/linux/rtkmipsel/files/arch/mips/rtl8197f/Kconfig
@@ -35,10 +38,10 @@ index 6e437b6..6fee8fd 100644
 -obj-$(CONFIG_RTL8197_MACH_HH71VM)	+= mach-hh71vm.o
 +obj-$(CONFIG_RTL8197_MACH_TENDA_AC8)	+= mach-tenda-ac8.o
 diff --git a/target/linux/rtkmipsel/files/arch/mips/rtl8197f/prom.c b/target/linux/rtkmipsel/files/arch/mips/rtl8197f/prom.c
-index 839ac76..1511545 100644
+index 839ac76..a6b4f0b 100644
 --- a/target/linux/rtkmipsel/files/arch/mips/rtl8197f/prom.c
 +++ b/target/linux/rtkmipsel/files/arch/mips/rtl8197f/prom.c
-@@ -85,6 +85,12 @@ void prom_putchar(char c)
+@@ -85,6 +85,21 @@ void prom_putchar(char c)
  	return;
  }
  
@@ -48,6 +51,31 @@ index 839ac76..1511545 100644
 +#define BSP_UART0_BAUD_DIVISOR	((BSP_UART0_FREQ >> 4) / 115200)
 +#endif
 +
++/*
++ * The RTL8197FH-VG of the AC8 is a VG chip: like rtkload of the vendor SDK,
++ * use the +0x000 registers for every ID but that of the plain RTL8197F.
++ */
++#ifdef CONFIG_RTL8197_MACH_TENDA_AC8
++#undef IS_8197F_VG
++#define IS_8197F_VG()	(!IS_8197F())
++#endif
++
  static int bsp_serial_init(void)
  {
  	if (IS_8197F_VG()) {
+@@ -151,7 +166,15 @@ static __init u_long prom_detect_memsize(void)
+ 	case 0x0B:
+ 		return 128 << 20;
+ 	default:
++#ifdef CONFIG_RTL8197_MACH_TENDA_AC8
++		/*
++		 * The AC8 has 64 MB (and the loader passes mem=64M): do not
++		 * trust a register the table does not know.
++		 */
++		return 64 << 20;
++#else
+ 		return REG32(0xB8000F00) << 20;
++#endif
+ 	}
+ }
+ 

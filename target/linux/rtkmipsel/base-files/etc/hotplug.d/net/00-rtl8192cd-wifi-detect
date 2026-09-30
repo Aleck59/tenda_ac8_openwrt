@@ -7,12 +7,14 @@
 # (wlan0-va0, wlan0-wds0 and others) - otherwise `wifi config` would twitch more than twenty times.
 # The detect function itself is still idempotent.
 #
-# Loading order: /etc/init.d/boot (START=10) loads modules via kmodloader - here
-# this event comes; the network rises later (/etc/init.d/network, START=20), that is, netifd
-# at the start it already sees the finished /etc/config/wireless.
+# Loading order on the Tenda AC8: /etc/init.d/ac8-wifi (START=99) loads the driver at the end
+# of the boot, here this event comes; ac8-wifi then runs `wifi config` itself (under the same
+# lock, so that the two do not add the same radio twice) and `wifi up`.
 
 case "$ACTION:$INTERFACE" in
 	add:wlan[0-9])
+		lock /var/lock/rtl8192cd-detect
 		/sbin/wifi config
+		lock -u /var/lock/rtl8192cd-detect
 	;;
 esac

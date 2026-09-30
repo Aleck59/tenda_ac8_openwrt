@@ -20,7 +20,9 @@
 #   end-128k  tenda_config  128k  Tenda configuration, ro
 #
 # Two flash-size variants of the same kernel differ only in the command line
-# of the LZMA loader.  The kernel does not override it (no CMDLINE_BOOL).
+# of the LZMA loader.  The kernel does not override it (no CMDLINE_BOOL).  The
+# loader passes it as its own argv (argc 2, argv[1]): a0/a1 of the Tenda boot
+# loader are no argument vector.
 #
 #   *-squashfs-flash.bin       the firmware partition from 0x20000, for the
 #                              boot loader (TFTP), a programmer or
@@ -43,7 +45,9 @@ FW_BURN_ADDR := 0x20000
 AC8_FW_SIZE_8m := 8126464
 AC8_FW_SIZE_16m := 16515072
 
-AC8_CMDLINE := console=ttyS0,115200 rootfstype=squashfs
+# mem=: prom_detect_memsize() of the target reads the RAM size from the bond
+# option register, and its table has no entry for the RTL8197FH-VG.
+AC8_CMDLINE := console=ttyS0,115200 mem=64M rootfstype=squashfs
 AC8_MTDPARTS_8m := mtdparts=m25p80:128k(boot)ro,7936k(firmware),128k(tenda_config)ro
 AC8_MTDPARTS_16m := mtdparts=m25p80:128k(boot)ro,16128k(firmware),128k(tenda_config)ro
 

@@ -1,0 +1,26 @@
+Subject: [PATCH] rtkmipsel: kmod-rtl8192cd: no autoload
+
+/etc/init.d/ac8-wifi loads the Wi-Fi driver at the end of the boot, behind a
+guard against a boot loop.
+
+---
+diff --git a/target/linux/rtkmipsel/modules.mk b/target/linux/rtkmipsel/modules.mk
+index 7487e57..c2ee7f6 100644
+--- a/target/linux/rtkmipsel/modules.mk
++++ b/target/linux/rtkmipsel/modules.mk
+@@ -9,13 +9,14 @@
+ # RAM boot mode by holding WPS. The full rationale is in
+ # docs/rtl8192cd-porting-map.md.
+ 
++# No AUTOLOAD: /etc/init.d/ac8-wifi (base-files) loads the driver at the end of
++# the boot, behind a guard against a boot loop.
+ define KernelPackage/rtl8192cd
+   SUBMENU:=$(WIRELESS_MENU)
+   TITLE:=Realtek RTL8192CD (vendor driver, RTL8197F 2.4 GHz SoC radio)
+   DEPENDS:=@TARGET_rtkmipsel
+   KCONFIG:=CONFIG_RTL8192CD
+   FILES:=$(LINUX_DIR)/drivers/net/wireless/realtek/rtl8192cd/rtl8192cd.ko
+-  AUTOLOAD:=$(call AutoLoad,50,rtl8192cd)
+ endef
+ 
+ define KernelPackage/rtl8192cd/description
