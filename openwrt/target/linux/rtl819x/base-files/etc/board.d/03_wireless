@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Default Wi-Fi: both radios on, WPA2/WPA3 mixed mode. The key is the
+# per-device WPS PIN from the factory NVRAM (8 digits), the SSID carries the
+# last three bytes of the LAN MAC. Without a PIN the radios stay disabled.
+
+. /lib/functions/uci-defaults.sh
+. /lib/functions/system.sh
+
+board_config_update
+
+case "$(board_name)" in
+tenda,ac8-v1)
+	part=$(find_mtd_part factory)
+	pin=""
+	[ -n "$part" ] && pin=$(strings "$part" | sed -n 's/^wps_device_pin=//p' | head -n 1)
+	mac=$(mtd_get_mac_ascii factory et0macaddr)
+	suffix=$(echo "$mac" | tr -d ':' | tr 'a-f' 'A-F' | tail -c 7)
+
+	ucidef_set_country "RU"
+	if echo "$pin" | grep -qE '^[0-9]{8}$'; then
+		ucidef_set_wireless 2g "OpenWrt-AC8-$suffix" sae-mixed "$pin"
+		ucidef_set_wireless 5g "OpenWrt-AC8-$suffix-5G" sae-mixed "$pin"
+	fi
+	;;
+esac
+
+board_config_flush
+
+exit 0

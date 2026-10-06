@@ -1,0 +1,1375 @@
+---- <stdio.h> Matches (45 in 36 files) ----
+Arc4.c:#include <stdio.h>
+Base64.c:#include <stdio.h>
+Bignum.c:#include <stdio.h>
+Bignum.h (mbedtls):#include <stdio.h>
+Camellia.c:#include <stdio.h>
+Ccm.c:#include <stdio.h>
+Ctr_drbg.c:#include <stdio.h>
+Ctr_drbg.c:#include <stdio.h>
+Debug.c:#include <stdio.h>
+Des.c:#include <stdio.h>
+Dhm.c:#include <stdio.h>
+Ecjpake.c:#include <stdio.h>
+Ecp.c:#include <stdio.h>
+Entropy.c:#include <stdio.h>
+Entropy.c:#include <stdio.h>
+Entropy_poll.c:#include <stdio.h>
+Error.c:#include <stdio.h>
+Gcm.c:#include <stdio.h>
+Hmac_drbg.c:#include <stdio.h>
+Hmac_drbg.c:#include <stdio.h>
+Md.c:#include <stdio.h>
+Md2.c:#include <stdio.h>
+Md4.c:#include <stdio.h>
+Md5.c:#include <stdio.h>
+Net.c:#include <stdio.h>
+Oid.c:#include <stdio.h>
+Pkcs5.c:#include <stdio.h>
+Platform.h (mbedtls):#include <stdio.h>
+Platform.h (mbedtls):#include <stdio.h>
+Ripemd160.c:#include <stdio.h>
+Rsa.c:#include <stdio.h>
+Sha1.c:#include <stdio.h>
+Sha256.c:#include <stdio.h>
+Sha512.c:#include <stdio.h>
+Timing.c:#include <stdio.h>
+X509.c:#include <stdio.h>
+X509.c:#include <stdio.h>
+X509.c:#include <stdio.h>
+X509_crl.c:#include <stdio.h>
+X509_crl.c:#include <stdio.h>
+X509_crt.c:#include <stdio.h>
+X509_crt.c:#include <stdio.h>
+X509_csr.c:#include <stdio.h>
+X509_csr.c:#include <stdio.h>
+Xtea.c:#include <stdio.h>
+---- stdint.h Matches (20 in 20 files) ----
+Aes.h (mbedtls):#include <stdint.h>
+Base64.c:#include <stdint.h>
+Bignum.h (mbedtls):#include <stdint.h>
+Blowfish.h (mbedtls):#include <stdint.h>
+Camellia.h (mbedtls):#include <stdint.h>
+Des.h (mbedtls):#include <stdint.h>
+Gcm.h (mbedtls):#include <stdint.h>
+Md4.h (mbedtls):#include <stdint.h>
+Md5.h (mbedtls):#include <stdint.h>
+Net.c:#include <stdint.h>
+Net.h (mbedtls):#include <stdint.h>
+Padlock.h (mbedtls):#include <stdint.h>
+Pkcs5.h (mbedtls):#include <stdint.h>
+Ripemd160.h (mbedtls):#include <stdint.h>
+Sha1.h (mbedtls):#include <stdint.h>
+Sha256.h (mbedtls):#include <stdint.h>
+Sha512.h (mbedtls):#include <stdint.h>
+Ssl_cli.c:#include <stdint.h>
+Timing.h (mbedtls):#include <stdint.h>
+Xtea.h (mbedtls):#include <stdint.h>
+---- free Matches (1028 in 110 files) ----
+Aes.c:void mbedtls_aes_free( mbedtls_aes_context *ctx )
+Aes.c:    mbedtls_aes_free( &cty );
+Aes.c:    mbedtls_aes_free( &ctx );
+Aes.h (mbedtls):void mbedtls_aes_free( mbedtls_aes_context *ctx );
+Arc4.c:void mbedtls_arc4_vfree( mbedtls_arc4_context *ctx )
+Arc4.c:    mbedtls_arc4_vfree( &ctx );
+Arc4.h (mbedtls):void mbedtls_arc4_free( mbedtls_arc4_context *ctx );
+Asn1.h (mbedtls): * \brief       Free a mbedtls_asn1_named_data entry
+Asn1.h (mbedtls): * \param entry The named data entry to free
+Asn1.h (mbedtls):void mbedtls_asn1_free_named_data( mbedtls_asn1_named_data *entry );
+Asn1.h (mbedtls): * \brief       Free all entries in a mbedtls_asn1_named_data list
+Asn1.h (mbedtls): * \param head  Pointer to the head of the list of named data entries to free
+Asn1.h (mbedtls):void mbedtls_asn1_free_named_data_list( mbedtls_asn1_named_data **head );
+Asn1parse.c:#define mbedtls_free       free
+Asn1parse.c:void mbedtls_asn1_free_named_data( mbedtls_asn1_named_data *cur )
+Asn1parse.c:    mbedtls_free( cur->oid.p );
+Asn1parse.c:    mbedtls_free( cur->val.p );
+Asn1parse.c:void mbedtls_asn1_free_named_data_list( mbedtls_asn1_named_data **head )
+Asn1parse.c:        mbedtls_asn1_free_named_data( cur );
+Asn1parse.c:        mbedtls_free( cur );
+Asn1write.c:#define mbedtls_free       free
+Asn1write.c:            mbedtls_free( cur );
+Asn1write.c:            mbedtls_free( cur->oid.p );
+Asn1write.c:            mbedtls_free( cur );
+Asn1write.c:        mbedtls_free( cur->val.p );
+Bignum.c:#define mbedtls_free       free
+Bignum.c:void mbedtls_mpi_free( mbedtls_mpi *X )
+Bignum.c:        mbedtls_free( X->p );
+Bignum.c:            mbedtls_free( X->p );
+Bignum.c:        mbedtls_free( X->p );
+Bignum.c:        mbedtls_mpi_free( X );
+Bignum.c:    mbedtls_mpi_free( &T );
+Bignum.c:    mbedtls_mpi_free( &T );
+Bignum.c:    mbedtls_mpi_free( &TB );
+Bignum.c:    mbedtls_mpi_free( &TB ); mbedtls_mpi_free( &TA );
+Bignum.c:    mbedtls_mpi_free( &X ); mbedtls_mpi_free( &Y ); mbedtls_mpi_free( &Z );
+Bignum.c:    mbedtls_mpi_free( &T1 ); mbedtls_mpi_free( &T2 );
+Bignum.c:        mbedtls_mpi_free( &W[i] );
+Bignum.c:    mbedtls_mpi_free( &W[1] ); mbedtls_mpi_free( &T ); mbedtls_mpi_free( &Apos );
+Bignum.c:        mbedtls_mpi_free( &RR );
+Bignum.c:    mbedtls_mpi_free( &TG ); mbedtls_mpi_free( &TA ); mbedtls_mpi_free( &TB );
+Bignum.c:    mbedtls_mpi_free( &TA ); mbedtls_mpi_free( &TU ); mbedtls_mpi_free( &U1 ); mbedtls_mpi_free( &U2 );
+Bignum.c:    mbedtls_mpi_free( &G ); mbedtls_mpi_free( &TB ); mbedtls_mpi_free( &TV );
+Bignum.c:    mbedtls_mpi_free( &V1 ); mbedtls_mpi_free( &V2 );
+Bignum.c:    mbedtls_mpi_free( &W ); mbedtls_mpi_free( &R ); mbedtls_mpi_free( &T ); mbedtls_mpi_free( &A );
+Bignum.c:    mbedtls_mpi_free( &RR );
+Bignum.c:    mbedtls_mpi_free( &Y );
+Bignum.c:    mbedtls_mpi_free( &A ); mbedtls_mpi_free( &E ); mbedtls_mpi_free( &N ); mbedtls_mpi_free( &X );
+Bignum.c:    mbedtls_mpi_free( &Y ); mbedtls_mpi_free( &U ); mbedtls_mpi_free( &V );
+Bignum.h (mbedtls): *                  This just makes it ready to be set or freed,
+Bignum.h (mbedtls):void mbedtls_mpi_free( mbedtls_mpi *X );
+Blowfish.c:void mbedtls_blowfish_free( mbedtls_blowfish_context *ctx )
+Blowfish.h (mbedtls):void mbedtls_blowfish_free( mbedtls_blowfish_context *ctx );
+Camellia.c:void mbedtls_camellia_free( mbedtls_camellia_context *ctx )
+Camellia.c:    mbedtls_camellia_free( &cty );
+Camellia.h (mbedtls):void mbedtls_camellia_free( mbedtls_camellia_context *ctx );
+Ccm.c:    mbedtls_cipher_free( &ctx->cipher_ctx );
+Ccm.c: * Free context
+Ccm.c:void mbedtls_ccm_free( mbedtls_ccm_context *ctx )
+Ccm.c:    mbedtls_cipher_free( &ctx->cipher_ctx );
+Ccm.c:    mbedtls_ccm_free( &ctx );
+Ccm.h (mbedtls): *                  mbedtls_ccm_free().
+Ccm.h (mbedtls): * \brief           Free a CCM context and underlying cipher sub-context
+Ccm.h (mbedtls): * \param ctx       CCM context to free
+Ccm.h (mbedtls):void mbedtls_ccm_free( mbedtls_ccm_context *ctx );
+Check_config.h (mbedtls):extern void free(void *ptr);
+Check_config.h (mbedtls):#if defined(MBEDTLS_PLATFORM_FREE_MACRO) &&\
+Check_config.h (mbedtls):#error "MBEDTLS_PLATFORM_FREE_MACRO defined, but not all prerequisites"
+Check_config.h (mbedtls):#if defined(MBEDTLS_PLATFORM_FREE_MACRO) &&\
+Check_config.h (mbedtls):    defined(MBEDTLS_PLATFORM_STD_FREE)
+Check_config.h (mbedtls):#error "MBEDTLS_PLATFORM_FREE_MACRO and MBEDTLS_PLATFORM_STD_FREE cannot be defined simultaneously"
+Check_config.h (mbedtls):#if defined(MBEDTLS_PLATFORM_FREE_MACRO) && !defined(MBEDTLS_PLATFORM_CALLOC_MACRO)
+Check_config.h (mbedtls):#error "MBEDTLS_PLATFORM_CALLOC_MACRO must be defined if MBEDTLS_PLATFORM_FREE_MACRO is"
+Check_config.h (mbedtls):#if defined(MBEDTLS_PLATFORM_CALLOC_MACRO) && !defined(MBEDTLS_PLATFORM_FREE_MACRO)
+Check_config.h (mbedtls):#error "MBEDTLS_PLATFORM_FREE_MACRO must be defined if MBEDTLS_PLATFORM_CALLOC_MACRO is"
+Check_config.h (mbedtls):#if defined(MBEDTLS_PLATFORM_STD_FREE) && !defined(MBEDTLS_PLATFORM_MEMORY)
+Check_config.h (mbedtls):#error "MBEDTLS_PLATFORM_STD_FREE defined, but not all prerequisites"
+Cipher.c:void mbedtls_cipher_free( mbedtls_cipher_context_t *ctx )
+Cipher.c:        ctx->cipher_info->base->ctx_free_func( ctx->cipher_ctx );
+Cipher.h (mbedtls):#define MBEDTLS_ERR_CIPHER_INVALID_CONTEXT              -0x6380  /**< The context is invalid, eg because it was free()ed. */
+Cipher.h (mbedtls): * \brief               Free and clear the cipher-specific context of ctx.
+Cipher.h (mbedtls): *                      Freeing ctx itself remains the responsibility of the
+Cipher.h (mbedtls):void mbedtls_cipher_free( mbedtls_cipher_context_t *ctx );
+Cipher_internal.h (mbedtls):    /** Free the given context */
+Cipher_internal.h (mbedtls):    void (*ctx_free_func)( void *ctx );
+Cipher_wrap.c:#define mbedtls_free       free
+Cipher_wrap.c:static void gcm_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_gcm_free( ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:static void ccm_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_ccm_free( ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:static void aes_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_aes_free( (mbedtls_aes_context *) ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:    aes_ctx_free
+Cipher_wrap.c:    gcm_ctx_free,
+Cipher_wrap.c:    ccm_ctx_free,
+Cipher_wrap.c:static void camellia_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_camellia_free( (mbedtls_camellia_context *) ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:    camellia_ctx_free
+Cipher_wrap.c:    gcm_ctx_free,
+Cipher_wrap.c:    ccm_ctx_free,
+Cipher_wrap.c:static void des_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_des_free( (mbedtls_des_context *) ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:static void des3_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_des3_free( (mbedtls_des3_context *) ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:    des_ctx_free
+Cipher_wrap.c:    des3_ctx_free
+Cipher_wrap.c:    des3_ctx_free
+Cipher_wrap.c:static void blowfish_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_blowfish_free( (mbedtls_blowfish_context *) ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:    blowfish_ctx_free
+Cipher_wrap.c:static void arc4_ctx_free( void *ctx )
+Cipher_wrap.c:    mbedtls_arc4_free( (mbedtls_arc4_context *) ctx );
+Cipher_wrap.c:    mbedtls_free( ctx );
+Cipher_wrap.c:    arc4_ctx_free
+Cipher_wrap.c:static void null_ctx_free( void *ctx )
+Cipher_wrap.c:    null_ctx_free
+Compat-1.3.h (mbedtls):#if defined MBEDTLS_PLATFORM_FREE_MACRO
+Compat-1.3.h (mbedtls):#define POLARSSL_PLATFORM_FREE_MACRO MBEDTLS_PLATFORM_FREE_MACRO
+Compat-1.3.h (mbedtls):#if defined MBEDTLS_PLATFORM_STD_FREE
+Compat-1.3.h (mbedtls):#define POLARSSL_PLATFORM_STD_FREE MBEDTLS_PLATFORM_STD_FREE
+Compat-1.3.h (mbedtls):#define MEMORY_VERIFY_FREE MBEDTLS_MEMORY_VERIFY_FREE
+Compat-1.3.h (mbedtls):#define aes_free mbedtls_aes_free
+Compat-1.3.h (mbedtls):#define arc4_free mbedtls_arc4_free
+Compat-1.3.h (mbedtls):#define asn1_free_named_data mbedtls_asn1_free_named_data
+Compat-1.3.h (mbedtls):#define asn1_free_named_data_list mbedtls_asn1_free_named_data_list
+Compat-1.3.h (mbedtls):#define blowfish_free mbedtls_blowfish_free
+Compat-1.3.h (mbedtls):#define camellia_free mbedtls_camellia_free
+Compat-1.3.h (mbedtls):#define ccm_free mbedtls_ccm_free
+Compat-1.3.h (mbedtls):#define cipher_free mbedtls_cipher_free
+Compat-1.3.h (mbedtls):#define cipher_free_ctx mbedtls_cipher_free_ctx
+Compat-1.3.h (mbedtls):#define ctr_drbg_free mbedtls_ctr_drbg_free
+Compat-1.3.h (mbedtls):#define des3_free mbedtls_des3_free
+Compat-1.3.h (mbedtls):#define des_free mbedtls_des_free
+Compat-1.3.h (mbedtls):#define dhm_free mbedtls_dhm_free
+Compat-1.3.h (mbedtls):#define ecdh_free mbedtls_ecdh_free
+Compat-1.3.h (mbedtls):#define ecdsa_free mbedtls_ecdsa_free
+Compat-1.3.h (mbedtls):#define ecp_group_free mbedtls_ecp_group_free
+Compat-1.3.h (mbedtls):#define ecp_keypair_free mbedtls_ecp_keypair_free
+Compat-1.3.h (mbedtls):#define ecp_point_free mbedtls_ecp_point_free
+Compat-1.3.h (mbedtls):#define entropy_free mbedtls_entropy_free
+Compat-1.3.h (mbedtls):#define gcm_free mbedtls_gcm_free
+Compat-1.3.h (mbedtls):#define havege_free mbedtls_havege_free
+Compat-1.3.h (mbedtls):#define hmac_drbg_free mbedtls_hmac_drbg_free
+Compat-1.3.h (mbedtls):#define md2_free mbedtls_md2_free
+Compat-1.3.h (mbedtls):#define md4_free mbedtls_md4_free
+Compat-1.3.h (mbedtls):#define md5_free mbedtls_md5_free
+Compat-1.3.h (mbedtls):#define md_free mbedtls_md_free
+Compat-1.3.h (mbedtls):#define md_free_ctx mbedtls_md_free_ctx
+Compat-1.3.h (mbedtls):#define memory_buffer_alloc_free mbedtls_memory_buffer_alloc_free
+Compat-1.3.h (mbedtls):#define mpi_free mbedtls_mpi_free
+Compat-1.3.h (mbedtls):#define net_close mbedtls_net_free
+Compat-1.3.h (mbedtls):#define pem_free mbedtls_pem_free
+Compat-1.3.h (mbedtls):#define pk_free mbedtls_pk_free
+Compat-1.3.h (mbedtls):#define pkcs11_priv_key_free mbedtls_pkcs11_priv_key_free
+Compat-1.3.h (mbedtls):#define platform_set_malloc_free mbedtls_platform_set_malloc_free
+Compat-1.3.h (mbedtls):#define polarssl_free mbedtls_free
+Compat-1.3.h (mbedtls):#define polarssl_mutex_free mbedtls_mutex_free
+Compat-1.3.h (mbedtls):#define ripemd160_free mbedtls_ripemd160_free
+Compat-1.3.h (mbedtls):#define rsa_free mbedtls_rsa_free
+Compat-1.3.h (mbedtls):#define sha1_free mbedtls_sha1_free
+Compat-1.3.h (mbedtls):#define sha256_free mbedtls_sha256_free
+Compat-1.3.h (mbedtls):#define sha512_free mbedtls_sha512_free
+Compat-1.3.h (mbedtls):#define ssl_cache_free mbedtls_ssl_cache_free
+Compat-1.3.h (mbedtls):#define ssl_cookie_free mbedtls_ssl_cookie_free
+Compat-1.3.h (mbedtls):#define ssl_free mbedtls_ssl_free
+Compat-1.3.h (mbedtls):#define ssl_handshake_free mbedtls_ssl_handshake_free
+Compat-1.3.h (mbedtls):#define ssl_session_free mbedtls_ssl_session_free
+Compat-1.3.h (mbedtls):#define ssl_transform_free mbedtls_ssl_transform_free
+Compat-1.3.h (mbedtls):#define x509_crl_free mbedtls_x509_crl_free
+Compat-1.3.h (mbedtls):#define x509_crt_free mbedtls_x509_crt_free
+Compat-1.3.h (mbedtls):#define x509_csr_free mbedtls_x509_csr_free
+Compat-1.3.h (mbedtls):#define x509write_crt_free mbedtls_x509write_crt_free
+Compat-1.3.h (mbedtls):#define x509write_csr_free mbedtls_x509write_csr_free
+Compat-1.3.h (mbedtls):#define xtea_free mbedtls_xtea_free
+Config.h (mbedtls): * By default mbed TLS uses the system-provided calloc() and free().
+Config.h (mbedtls): * MBEDTLS_PLATFORM_{FREE,CALLOC}_MACROs will provide
+Config.h (mbedtls): * "mbedtls_platform_set_calloc_free()" allowing you to set an alternative calloc() and
+Config.h (mbedtls): * free() function pointer at runtime.
+Config.h (mbedtls): * MBEDTLS_PLATFORM_{CALLOC,FREE}_MACROs will allow you to specify the
+Config.h (mbedtls): * based buffer to 'allocate' dynamic memory. (replaces calloc() and free()
+Config.h (mbedtls): * functions like calloc(), free(), snprintf(), printf(), fprintf(), exit().
+Config.h (mbedtls)://#define MBEDTLS_PLATFORM_STD_FREE            free /**< Default free to use, can be undefined */
+Config.h (mbedtls)://#define MBEDTLS_PLATFORM_FREE_MACRO            free /**< Default free macro to use, can be undefined */
+Ctr_drbg.c:void mbedtls_ctr_drbg_free( mbedtls_ctr_drbg_context *ctx )
+Ctr_drbg.c:    mbedtls_mutex_free( &ctx->mutex );
+Ctr_drbg.c:    mbedtls_aes_free( &ctx->aes_ctx );
+Ctr_drbg.c:    mbedtls_aes_free( &aes_ctx );
+Ctr_drbg.c:    mbedtls_ctr_drbg_free( &ctx );
+Ctr_drbg.c:    mbedtls_ctr_drbg_free( &ctx );
+Ctr_drbg.h (mbedtls): *                      mbedtls_ctr_drbg_free().
+Ctr_drbg.h (mbedtls):void mbedtls_ctr_drbg_free( mbedtls_ctr_drbg_context *ctx );
+Debug.c:#define mbedtls_free        free
+Des.c:void mbedtls_des_free( mbedtls_des_context *ctx )
+Des.c:void mbedtls_des3_free( mbedtls_des3_context *ctx )
+Des.c:    mbedtls_des_free( &ctx );
+Des.c:    mbedtls_des3_free( &ctx3 );
+Des.h (mbedtls):void mbedtls_des_free( mbedtls_des_context *ctx );
+Des.h (mbedtls):void mbedtls_des3_free( mbedtls_des3_context *ctx );
+Dhm.c:#define mbedtls_free       free
+Dhm.c:    mbedtls_mpi_free( &L ); mbedtls_mpi_free( &U );
+Dhm.c:    mbedtls_mpi_free( &GYb );
+Dhm.c: * Free the components of a DHM key
+Dhm.c:void mbedtls_dhm_free( mbedtls_dhm_context *ctx )
+Dhm.c:    mbedtls_mpi_free( &ctx->pX); mbedtls_mpi_free( &ctx->Vf ); mbedtls_mpi_free( &ctx->Vi );
+Dhm.c:    mbedtls_mpi_free( &ctx->RP ); mbedtls_mpi_free( &ctx->K ); mbedtls_mpi_free( &ctx->GY );
+Dhm.c:    mbedtls_mpi_free( &ctx->GX ); mbedtls_mpi_free( &ctx->X ); mbedtls_mpi_free( &ctx->G );
+Dhm.c:    mbedtls_mpi_free( &ctx->P );
+Dhm.c:        mbedtls_mpi_free( &rec );
+Dhm.c:    mbedtls_pem_free( &pem );
+Dhm.c:        mbedtls_dhm_free( dhm );
+Dhm.c:        mbedtls_free( *buf );
+Dhm.c:    mbedtls_free( buf );
+Dhm.c:    mbedtls_dhm_free( &dhm );
+Dhm.h (mbedtls): * \brief          Free and clear the components of a DHM key
+Dhm.h (mbedtls): * \param ctx      DHM context to free and clear
+Dhm.h (mbedtls):void mbedtls_dhm_free( mbedtls_dhm_context *ctx );
+Ecdh.c:    mbedtls_ecp_point_free( &P );
+Ecdh.c: * Free context
+Ecdh.c:void mbedtls_ecdh_free( mbedtls_ecdh_context *ctx )
+Ecdh.c:    mbedtls_ecp_group_free( &ctx->grp );
+Ecdh.c:    mbedtls_ecp_point_free( &ctx->Q   );
+Ecdh.c:    mbedtls_ecp_point_free( &ctx->Qp  );
+Ecdh.c:    mbedtls_ecp_point_free( &ctx->Vi  );
+Ecdh.c:    mbedtls_ecp_point_free( &ctx->Vf  );
+Ecdh.c:    mbedtls_mpi_free( &ctx->d  );
+Ecdh.c:    mbedtls_mpi_free( &ctx->z  );
+Ecdh.c:    mbedtls_mpi_free( &ctx->_d );
+Ecdh.h (mbedtls): * \brief           Free context
+Ecdh.h (mbedtls): * \param ctx       Context to free
+Ecdh.h (mbedtls):void mbedtls_ecdh_free( mbedtls_ecdh_context *ctx );
+Ecdsa.c:    mbedtls_ecp_point_free( &R );
+Ecdsa.c:    mbedtls_mpi_free( &k ); mbedtls_mpi_free( &e ); mbedtls_mpi_free( &t );
+Ecdsa.c:    mbedtls_hmac_drbg_free( &rng_ctx );
+Ecdsa.c:    mbedtls_mpi_free( &h );
+Ecdsa.c:    mbedtls_ecp_point_free( &R );
+Ecdsa.c:    mbedtls_mpi_free( &e ); mbedtls_mpi_free( &s_inv ); mbedtls_mpi_free( &u1 ); mbedtls_mpi_free( &u2 );
+Ecdsa.c:    mbedtls_mpi_free( &r );
+Ecdsa.c:    mbedtls_mpi_free( &s );
+Ecdsa.c:    mbedtls_mpi_free( &r );
+Ecdsa.c:    mbedtls_mpi_free( &s );
+Ecdsa.c:        mbedtls_ecdsa_free( ctx );
+Ecdsa.c: * Free context
+Ecdsa.c:void mbedtls_ecdsa_free( mbedtls_ecdsa_context *ctx )
+Ecdsa.c:    mbedtls_ecp_keypair_free( ctx );
+Ecdsa.h (mbedtls): * \brief           Free context
+Ecdsa.h (mbedtls): * \param ctx       Context to free
+Ecdsa.h (mbedtls):void mbedtls_ecdsa_free( mbedtls_ecdsa_context *ctx );
+Ecjpake.c: * Free context
+Ecjpake.c:void mbedtls_ecjpake_free( mbedtls_ecjpake_context *ctx )
+Ecjpake.c:    mbedtls_ecp_group_free( &ctx->grp );
+Ecjpake.c:    mbedtls_ecp_point_free( &ctx->Xm1 );
+Ecjpake.c:    mbedtls_ecp_point_free( &ctx->Xm2 );
+Ecjpake.c:    mbedtls_ecp_point_free( &ctx->Xp1 );
+Ecjpake.c:    mbedtls_ecp_point_free( &ctx->Xp2 );
+Ecjpake.c:    mbedtls_ecp_point_free( &ctx->Xp  );
+Ecjpake.c:    mbedtls_mpi_free( &ctx->xm1 );
+Ecjpake.c:    mbedtls_mpi_free( &ctx->xm2 );
+Ecjpake.c:    mbedtls_mpi_free( &ctx->s   );
+Ecjpake.c:        mbedtls_ecjpake_free( ctx );
+Ecjpake.c:    mbedtls_ecp_point_free( &V );
+Ecjpake.c:    mbedtls_ecp_point_free( &VV );
+Ecjpake.c:    mbedtls_mpi_free( &r );
+Ecjpake.c:    mbedtls_mpi_free( &h );
+Ecjpake.c:    mbedtls_ecp_point_free( &V );
+Ecjpake.c:    mbedtls_mpi_free( &v );
+Ecjpake.c:    mbedtls_mpi_free( &h );
+Ecjpake.c:    mbedtls_mpi_free( &one );
+Ecjpake.c:    mbedtls_ecp_group_free( &grp );
+Ecjpake.c:    mbedtls_ecp_point_free( &G );
+Ecjpake.c:    mbedtls_mpi_free( &b );
+Ecjpake.c:    mbedtls_ecp_point_free( &G );
+Ecjpake.c:    mbedtls_ecp_point_free( &Xm );
+Ecjpake.c:    mbedtls_mpi_free( &xm );
+Ecjpake.c:    mbedtls_ecp_point_free( &K );
+Ecjpake.c:    mbedtls_mpi_free( &m_xm2_s );
+Ecjpake.c:    mbedtls_mpi_free( &one );
+Ecjpake.c:    mbedtls_ecjpake_free( &cli );
+Ecjpake.c:    mbedtls_ecjpake_free( &srv );
+Ecjpake.h (mbedtls): *                  (just makes it ready for setup() or free()).
+Ecjpake.h (mbedtls): * \brief           Free a context's content
+Ecjpake.h (mbedtls): * \param ctx       context to free
+Ecjpake.h (mbedtls):void mbedtls_ecjpake_free( mbedtls_ecjpake_context *ctx );
+Ecp.c:#define mbedtls_free       free
+Ecp.c:void mbedtls_ecp_point_free( mbedtls_ecp_point *pt )
+Ecp.c:    mbedtls_mpi_free( &( pt->X ) );
+Ecp.c:    mbedtls_mpi_free( &( pt->Y ) );
+Ecp.c:    mbedtls_mpi_free( &( pt->Z ) );
+Ecp.c:void mbedtls_ecp_group_free( mbedtls_ecp_group *grp )
+Ecp.c:        mbedtls_mpi_free( &grp->P );
+Ecp.c:        mbedtls_mpi_free( &grp->A );
+Ecp.c:        mbedtls_mpi_free( &grp->B );
+Ecp.c:        mbedtls_ecp_point_free( &grp->G );
+Ecp.c:        mbedtls_mpi_free( &grp->N );
+Ecp.c:            mbedtls_ecp_point_free( &grp->T[i] );
+Ecp.c:        mbedtls_free( grp->T );
+Ecp.c:void mbedtls_ecp_keypair_free( mbedtls_ecp_keypair *key )
+Ecp.c:    mbedtls_ecp_group_free( &key->grp );
+Ecp.c:    mbedtls_mpi_free( &key->d );
+Ecp.c:    mbedtls_ecp_point_free( &key->Q );
+Ecp.c:    mbedtls_mpi_free( &Zi ); mbedtls_mpi_free( &ZZi );
+Ecp.c:        mbedtls_mpi_free( &T[i]->Z );
+Ecp.c:    mbedtls_mpi_free( &u ); mbedtls_mpi_free( &Zi ); mbedtls_mpi_free( &ZZi );
+Ecp.c:        mbedtls_mpi_free( &c[i] );
+Ecp.c:    mbedtls_free( c );
+Ecp.c:    mbedtls_mpi_free( &mQY );
+Ecp.c:    mbedtls_mpi_free( &M ); mbedtls_mpi_free( &S ); mbedtls_mpi_free( &T ); mbedtls_mpi_free( &U );
+Ecp.c:    mbedtls_mpi_free( &T1 ); mbedtls_mpi_free( &T2 ); mbedtls_mpi_free( &T3 ); mbedtls_mpi_free( &T4 );
+Ecp.c:    mbedtls_mpi_free( &X ); mbedtls_mpi_free( &Y ); mbedtls_mpi_free( &Z );
+Ecp.c:    mbedtls_mpi_free( &l ); mbedtls_mpi_free( &ll );
+Ecp.c:    mbedtls_ecp_point_free( &Txi );
+Ecp.c:            mbedtls_ecp_point_free( &T[i] );
+Ecp.c:        mbedtls_free( T );
+Ecp.c:    mbedtls_mpi_free( &M );
+Ecp.c:    mbedtls_mpi_free( &mm );
+Ecp.c:        mbedtls_ecp_point_free( R );
+Ecp.c:    mbedtls_mpi_free( &l );
+Ecp.c:    mbedtls_mpi_free( &A ); mbedtls_mpi_free( &AA ); mbedtls_mpi_free( &B );
+Ecp.c:    mbedtls_mpi_free( &BB ); mbedtls_mpi_free( &E ); mbedtls_mpi_free( &C );
+Ecp.c:    mbedtls_mpi_free( &D ); mbedtls_mpi_free( &DA ); mbedtls_mpi_free( &CB );
+Ecp.c:    mbedtls_mpi_free( &R->Y );
+Ecp.c:    mbedtls_ecp_point_free( &RP ); mbedtls_mpi_free( &PX );
+Ecp.c:    mbedtls_mpi_free( &YY ); mbedtls_mpi_free( &RHS );
+Ecp.c:    mbedtls_ecp_point_free( &mP );
+Ecp.c:    mbedtls_ecp_point_free( &Q );
+Ecp.c:    mbedtls_ecp_group_free( &grp );
+Ecp.c:    mbedtls_ecp_group_free( &grp );
+Ecp.c:    mbedtls_ecp_point_free( &R );
+Ecp.c:    mbedtls_ecp_point_free( &P );
+Ecp.c:    mbedtls_mpi_free( &m );
+Ecp.h (mbedtls): * \brief           Free the components of a point
+Ecp.h (mbedtls):void mbedtls_ecp_point_free( mbedtls_ecp_point *pt );
+Ecp.h (mbedtls): * \brief           Free the components of an ECP group
+Ecp.h (mbedtls):void mbedtls_ecp_group_free( mbedtls_ecp_group *grp );
+Ecp.h (mbedtls): * \brief           Free the components of a key pair
+Ecp.h (mbedtls):void mbedtls_ecp_keypair_free( mbedtls_ecp_keypair *key );
+Ecp_curves.c:    mbedtls_mpi_free( &grp->G.Y );
+Ecp_curves.c:        mbedtls_ecp_group_free( grp );
+Ecp_curves.c:    mbedtls_ecp_group_free( grp );
+Ecp_curves.c:            mbedtls_ecp_group_free( grp );
+Entropy.c:void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
+Entropy.c:    mbedtls_havege_free( &ctx->havege_data );
+Entropy.c:    mbedtls_mutex_free( &ctx->mutex );
+Entropy.c:    mbedtls_entropy_free( &ctx );
+Entropy.h (mbedtls): * \brief           Free the data in the context
+Entropy.h (mbedtls): * \param ctx       Entropy context to free
+Entropy.h (mbedtls):void mbedtls_entropy_free( mbedtls_entropy_context *ctx );
+Error.c:            mbedtls_snprintf( buf, buflen, "CIPHER - The context is invalid, eg because it was free()ed" );
+Error.c:        mbedtls_snprintf( buf, buflen, "NET - The context is invalid, eg because it was free()ed" );
+Error.c:        mbedtls_snprintf( buf, buflen, "THREADING - Locking / unlocking / free failed with error code" );
+Gcm.c:    mbedtls_cipher_free( &ctx->cipher_ctx );
+Gcm.c:void mbedtls_gcm_free( mbedtls_gcm_context *ctx )
+Gcm.c:    mbedtls_cipher_free( &ctx->cipher_ctx );
+Gcm.c:            mbedtls_gcm_free( &ctx );
+Gcm.c:            mbedtls_gcm_free( &ctx );
+Gcm.c:            mbedtls_gcm_free( &ctx );
+Gcm.c:            mbedtls_gcm_free( &ctx );
+Gcm.h (mbedtls): *                  mbedtls_gcm_free().
+Gcm.h (mbedtls): * \brief           Free a GCM context and underlying cipher sub-context
+Gcm.h (mbedtls): * \param ctx       GCM context to free
+Gcm.h (mbedtls):void mbedtls_gcm_free( mbedtls_gcm_context *ctx );
+Havege.c:void mbedtls_havege_free( mbedtls_havege_state *hs )
+Havege.h (mbedtls):void mbedtls_havege_free( mbedtls_havege_state *hs );
+Hmac_drbg.c: * Free an HMAC_DRBG context
+Hmac_drbg.c:void mbedtls_hmac_drbg_free( mbedtls_hmac_drbg_context *ctx )
+Hmac_drbg.c:    mbedtls_mutex_free( &ctx->mutex );
+Hmac_drbg.c:    mbedtls_md_free( &ctx->md_ctx );
+Hmac_drbg.c:    mbedtls_hmac_drbg_free( &ctx );
+Hmac_drbg.c:    mbedtls_hmac_drbg_free( &ctx );
+Hmac_drbg.c:    mbedtls_hmac_drbg_free( &ctx );
+Hmac_drbg.c:    mbedtls_hmac_drbg_free( &ctx );
+Hmac_drbg.h (mbedtls): *                      mbedtls_hmac_drbg_free().
+Hmac_drbg.h (mbedtls): * \brief               Free an HMAC_DRBG context
+Hmac_drbg.h (mbedtls): * \param ctx           HMAC_DRBG context to free.
+Hmac_drbg.h (mbedtls):void mbedtls_hmac_drbg_free( mbedtls_hmac_drbg_context *ctx );
+Md.c:#define mbedtls_free       free
+Md.c:void mbedtls_md_free( mbedtls_md_context_t *ctx )
+Md.c:        ctx->md_info->ctx_free_func( ctx->md_ctx );
+Md.c:        mbedtls_free( ctx->hmac_ctx );
+Md.c:            md_info->ctx_free_func( ctx->md_ctx );
+Md.c:    mbedtls_md_free( &ctx );
+Md.c:    mbedtls_md_free( &ctx );
+Md.h (mbedtls): *                  Prepares the context for mbedtls_md_setup() or mbedtls_md_free().
+Md.h (mbedtls): * \brief           Free and clear the internal structures of ctx.
+Md.h (mbedtls):void mbedtls_md_free( mbedtls_md_context_t *ctx );
+Md.h (mbedtls): *                  Should be called after mbedtls_md_init() or mbedtls_md_free().
+Md.h (mbedtls): *                  Makes it necessary to call mbedtls_md_free() later.
+Md.h (mbedtls): *                  Should be called after mbedtls_md_init() or mbedtls_md_free().
+Md.h (mbedtls): *                  Makes it necessary to call mbedtls_md_free() later.
+Md.h (mbedtls): *                  Usually followed by mbedtls_md_free() or mbedtls_md_starts().
+Md.h (mbedtls): *                  or mbedtls_md_free().
+Md2.c:void mbedtls_md2_free( mbedtls_md2_context *ctx )
+Md2.c:    mbedtls_md2_free( &ctx );
+Md2.h (mbedtls):void mbedtls_md2_free( mbedtls_md2_context *ctx );
+Md4.c:void mbedtls_md4_free( mbedtls_md4_context *ctx )
+Md4.c:    mbedtls_md4_free( &ctx );
+Md4.h (mbedtls):void mbedtls_md4_free( mbedtls_md4_context *ctx );
+Md5.c:void mbedtls_md5_free( mbedtls_md5_context *ctx )
+Md5.c:    mbedtls_md5_free( &ctx );
+Md5.h (mbedtls):void mbedtls_md5_free( mbedtls_md5_context *ctx );
+Md_internal.h (mbedtls):    /** Free the given context */
+Md_internal.h (mbedtls):    void (*ctx_free_func)( void *ctx );
+Md_wrap.c:#define mbedtls_free       free
+Md_wrap.c:static void md2_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_md2_free( (mbedtls_md2_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    md2_ctx_free,
+Md_wrap.c:static void md4_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_md4_free( (mbedtls_md4_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    md4_ctx_free,
+Md_wrap.c:static void md5_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_md5_free( (mbedtls_md5_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    md5_ctx_free,
+Md_wrap.c:static void ripemd160_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_ripemd160_free( (mbedtls_ripemd160_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    ripemd160_ctx_free,
+Md_wrap.c:static void sha1_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_sha1_free( (mbedtls_sha1_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    sha1_ctx_free,
+Md_wrap.c:static void sha224_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_sha256_free( (mbedtls_sha256_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    sha224_ctx_free,
+Md_wrap.c:    sha224_ctx_free,
+Md_wrap.c:static void sha384_ctx_free( void *ctx )
+Md_wrap.c:    mbedtls_sha512_free( (mbedtls_sha512_context *) ctx );
+Md_wrap.c:    mbedtls_free( ctx );
+Md_wrap.c:    sha384_ctx_free,
+Md_wrap.c:    sha384_ctx_free,
+Memory_buffer_alloc.c:    memory_header   *prev_free;
+Memory_buffer_alloc.c:    memory_header   *next_free;
+Memory_buffer_alloc.c:    memory_header   *first_free;
+Memory_buffer_alloc.c:    size_t          free_count;
+Memory_buffer_alloc.c:                      (size_t) hdr->prev_free, (size_t) hdr->next_free );
+Memory_buffer_alloc.c:    mbedtls_fprintf( stderr, "Free list\n" );
+Memory_buffer_alloc.c:    cur = heap.first_free;
+Memory_buffer_alloc.c:        cur = cur->next_free;
+Memory_buffer_alloc.c:    if( hdr->prev_free != NULL && hdr->prev_free == hdr->next_free )
+Memory_buffer_alloc.c:        mbedtls_fprintf( stderr, "FATAL: prev_free == next_free\n" );
+Memory_buffer_alloc.c:    memory_header *new, *cur = heap.first_free;
+Memory_buffer_alloc.c:        cur = cur->next_free;
+Memory_buffer_alloc.c:        mbedtls_fprintf( stderr, "FATAL: block in free_list but allocated "
+Memory_buffer_alloc.c:        // Remove from free_list
+Memory_buffer_alloc.c:        if( cur->prev_free != NULL )
+Memory_buffer_alloc.c:            cur->prev_free->next_free = cur->next_free;
+Memory_buffer_alloc.c:            heap.first_free = cur->next_free;
+Memory_buffer_alloc.c:        if( cur->next_free != NULL )
+Memory_buffer_alloc.c:            cur->next_free->prev_free = cur->prev_free;
+Memory_buffer_alloc.c:        cur->prev_free = NULL;
+Memory_buffer_alloc.c:        cur->next_free = NULL;
+Memory_buffer_alloc.c:    // Replace cur with new in free_list
+Memory_buffer_alloc.c:    new->prev_free = cur->prev_free;
+Memory_buffer_alloc.c:    new->next_free = cur->next_free;
+Memory_buffer_alloc.c:    if( new->prev_free != NULL )
+Memory_buffer_alloc.c:        new->prev_free->next_free = new;
+Memory_buffer_alloc.c:        heap.first_free = new;
+Memory_buffer_alloc.c:    if( new->next_free != NULL )
+Memory_buffer_alloc.c:        new->next_free->prev_free = new;
+Memory_buffer_alloc.c:    cur->prev_free = NULL;
+Memory_buffer_alloc.c:    cur->next_free = NULL;
+Memory_buffer_alloc.c:static void buffer_alloc_free( void *ptr )
+Memory_buffer_alloc.c:        mbedtls_fprintf( stderr, "FATAL: mbedtls_free() outside of managed "
+Memory_buffer_alloc.c:        mbedtls_fprintf( stderr, "FATAL: mbedtls_free() on unallocated "
+Memory_buffer_alloc.c:    heap.free_count++;
+Memory_buffer_alloc.c:    free( hdr->trace );
+Memory_buffer_alloc.c:        if( hdr->prev_free != NULL || hdr->next_free != NULL )
+Memory_buffer_alloc.c:            if( hdr->prev_free != NULL )
+Memory_buffer_alloc.c:                hdr->prev_free->next_free = hdr->next_free;
+Memory_buffer_alloc.c:                heap.first_free = hdr->next_free;
+Memory_buffer_alloc.c:            if( hdr->next_free != NULL )
+Memory_buffer_alloc.c:                hdr->next_free->prev_free = hdr->prev_free;
+Memory_buffer_alloc.c:        hdr->prev_free = old->prev_free;
+Memory_buffer_alloc.c:        hdr->next_free = old->next_free;
+Memory_buffer_alloc.c:        if( hdr->prev_free != NULL )
+Memory_buffer_alloc.c:            hdr->prev_free->next_free = hdr;
+Memory_buffer_alloc.c:            heap.first_free = hdr;
+Memory_buffer_alloc.c:        if( hdr->next_free != NULL )
+Memory_buffer_alloc.c:            hdr->next_free->prev_free = hdr;
+Memory_buffer_alloc.c:    // Prepend to free_list if we have not merged
+Memory_buffer_alloc.c:        hdr->next_free = heap.first_free;
+Memory_buffer_alloc.c:        if( heap.first_free != NULL )
+Memory_buffer_alloc.c:            heap.first_free->prev_free = hdr;
+Memory_buffer_alloc.c:        heap.first_free = hdr;
+Memory_buffer_alloc.c:    if( ( heap.verify & MBEDTLS_MEMORY_VERIFY_FREE ) && verify_chain() != 0 )
+Memory_buffer_alloc.c:                      "%zu bytes (total %zu bytes), alloc / free: %zu / %zu\n",
+Memory_buffer_alloc.c:                      heap.alloc_count, heap.free_count );
+Memory_buffer_alloc.c:static void buffer_alloc_free_mutexed( void *ptr )
+Memory_buffer_alloc.c:    buffer_alloc_free( ptr );
+Memory_buffer_alloc.c:    mbedtls_platform_set_calloc_free( buffer_alloc_calloc_mutexed,
+Memory_buffer_alloc.c:                              buffer_alloc_free_mutexed );
+Memory_buffer_alloc.c:    mbedtls_platform_set_calloc_free( buffer_alloc_calloc, buffer_alloc_free );
+Memory_buffer_alloc.c:    heap.first_free = heap.first;
+Memory_buffer_alloc.c:void mbedtls_memory_buffer_alloc_free()
+Memory_buffer_alloc.c:    mbedtls_mutex_free( &heap.mutex );
+Memory_buffer_alloc.c:static int check_all_free( )
+Memory_buffer_alloc.c:        heap.first != heap.first_free ||
+Memory_buffer_alloc.c:        mbedtls_printf( "  MBA test #1 (basic alloc-free cycle): " );
+Memory_buffer_alloc.c:    mbedtls_free( r );
+Memory_buffer_alloc.c:    mbedtls_free( q );
+Memory_buffer_alloc.c:    mbedtls_free( p );
+Memory_buffer_alloc.c:    TEST_ASSERT( check_all_free( ) == 0 );
+Memory_buffer_alloc.c:    mbedtls_memory_buffer_alloc_free( );
+Memory_buffer_alloc.c:    mbedtls_free( r );
+Memory_buffer_alloc.c:    mbedtls_free( q );
+Memory_buffer_alloc.c:    mbedtls_free( p );
+Memory_buffer_alloc.c:    TEST_ASSERT( check_all_free( ) == 0 );
+Memory_buffer_alloc.c:    mbedtls_memory_buffer_alloc_free( );
+Memory_buffer_alloc.c:    mbedtls_free( p );
+Memory_buffer_alloc.c:    mbedtls_free( q );
+Memory_buffer_alloc.c:    mbedtls_free( p );
+Memory_buffer_alloc.c:    TEST_ASSERT( check_all_free( ) == 0 );
+Memory_buffer_alloc.c:    mbedtls_memory_buffer_alloc_free( );
+Memory_buffer_alloc.c:    mbedtls_memory_buffer_alloc_free( );
+Memory_buffer_alloc.h (mbedtls):#define MBEDTLS_MEMORY_VERIFY_FREE         (1 << 1)
+Memory_buffer_alloc.h (mbedtls):#define MBEDTLS_MEMORY_VERIFY_ALWAYS       (MBEDTLS_MEMORY_VERIFY_ALLOC | MBEDTLS_MEMORY_VERIFY_FREE)
+Memory_buffer_alloc.h (mbedtls): *          presented buffer and does not call calloc() and free().
+Memory_buffer_alloc.h (mbedtls): *          It sets the global mbedtls_calloc() and mbedtls_free() pointers
+Memory_buffer_alloc.h (mbedtls): *          (Provided mbedtls_calloc() and mbedtls_free() are thread-safe if
+Memory_buffer_alloc.h (mbedtls): * \brief   Free the mutex for thread-safety and clear remaining memory
+Memory_buffer_alloc.h (mbedtls):void mbedtls_memory_buffer_alloc_free( void );
+Memory_buffer_alloc.h (mbedtls): *                  MBEDTLS_MEMORY_VERIFY_FREE or MBEDTLS_MEMORY_VERIFY_ALWAYS
+Memory_buffer_alloc.h (mbedtls): * \param max_blocks    Peak number of blocks in use, including free and used
+Memory_buffer_alloc.h (mbedtls): * \param cur_blocks    Current number of blocks in use, including free and used
+Net.c:    freeaddrinfo( addr_list );
+Net.c:    freeaddrinfo( addr_list );
+Net.c:void mbedtls_net_free( mbedtls_net_context *ctx )
+Net.h (mbedtls):#define MBEDTLS_ERR_NET_INVALID_CONTEXT                   -0x0045  /**< The context is invalid, eg because it was free()ed. */
+Net.h (mbedtls): *                 Just makes the context ready to be used or freed safely.
+Net.h (mbedtls): * \brief          Gracefully shutdown the connection and free associated data
+Net.h (mbedtls): * \param ctx      The context to free
+Net.h (mbedtls):void mbedtls_net_free( mbedtls_net_context *ctx );
+Pem.c:#define mbedtls_free       free
+Pem.c:        mbedtls_md5_free( &md5_ctx );
+Pem.c:    mbedtls_md5_free( &md5_ctx );
+Pem.c:    mbedtls_des_free( &des_ctx );
+Pem.c:    mbedtls_des3_free( &des3_ctx );
+Pem.c:    mbedtls_aes_free( &aes_ctx );
+Pem.c:        mbedtls_free( buf );
+Pem.c:            mbedtls_free( buf );
+Pem.c:            mbedtls_free( buf );
+Pem.c:        mbedtls_free( buf );
+Pem.c:void mbedtls_pem_free( mbedtls_pem_context *ctx )
+Pem.c:    mbedtls_free( ctx->buf );
+Pem.c:    mbedtls_free( ctx->info );
+Pem.c:        mbedtls_free( encode_buf );
+Pem.c:    mbedtls_free( encode_buf );
+Pem.h (mbedtls): * \brief       PEM context memory freeing
+Pem.h (mbedtls): * \param ctx   context to be freed
+Pem.h (mbedtls):void mbedtls_pem_free( mbedtls_pem_context *ctx );
+Pk.c: * Free (the components of) a mbedtls_pk_context
+Pk.c:void mbedtls_pk_free( mbedtls_pk_context *ctx )
+Pk.c:    ctx->pk_info->ctx_free_func( ctx->pk_ctx );
+Pk.h (mbedtls): * \brief           Free a mbedtls_pk_context
+Pk.h (mbedtls):void mbedtls_pk_free( mbedtls_pk_context *ctx );
+Pk.h (mbedtls): *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If you need a
+Pk.h (mbedtls): *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If you need a
+Pk.h (mbedtls): *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If you need a
+Pk.h (mbedtls): *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If
+Pkcs11.c:#define mbedtls_free       free
+Pkcs11.c:        mbedtls_free( cert_blob );
+Pkcs11.c:    mbedtls_x509_crt_free( &cert );
+Pkcs11.c:void mbedtls_pkcs11_priv_key_free( mbedtls_pkcs11_context *priv_key )
+Pkcs11.c:        pkcs11h_certificate_freeCertificate( priv_key->pkcs11h_cert );
+Pkcs11.h (mbedtls): * mbedtls_pkcs11_context will take over control of the certificate, freeing it when
+Pkcs11.h (mbedtls): * Free the contents of the given private key context. Note that the structure
+Pkcs11.h (mbedtls): * itself is not freed.
+Pkcs11.h (mbedtls):void mbedtls_pkcs11_priv_key_free( mbedtls_pkcs11_context *priv_key );
+Pkcs12.c:    mbedtls_arc4_free( &ctx );
+Pkcs12.c:    mbedtls_cipher_free( &cipher_ctx );
+Pkcs12.c:    mbedtls_md_free( &md_ctx );
+Pkcs5.c:    mbedtls_md_free( &md_ctx );
+Pkcs5.c:    mbedtls_cipher_free( &cipher_ctx );
+Pkcs5.c:    mbedtls_md_free( &sha1_ctx );
+Pkparse.c:#define mbedtls_free       free
+Pkparse.c:        mbedtls_free( *buf );
+Pkparse.c:    mbedtls_free( buf );
+Pkparse.c:    mbedtls_free( buf );
+Pkparse.c:        mbedtls_ecp_group_free( &ref );
+Pkparse.c:    mbedtls_ecp_group_free( &ref );
+Pkparse.c:    mbedtls_ecp_group_free( &grp );
+Pkparse.c:        mbedtls_pk_free( pk );
+Pkparse.c:        mbedtls_rsa_free( rsa );
+Pkparse.c:        mbedtls_rsa_free( rsa );
+Pkparse.c:        mbedtls_rsa_free( rsa );
+Pkparse.c:        mbedtls_ecp_keypair_free( eck );
+Pkparse.c:                mbedtls_ecp_keypair_free( eck );
+Pkparse.c:            mbedtls_ecp_keypair_free( eck );
+Pkparse.c:            mbedtls_ecp_keypair_free( eck );
+Pkparse.c:        mbedtls_ecp_keypair_free( eck );
+Pkparse.c:        mbedtls_ecp_keypair_free( eck );
+Pkparse.c:            mbedtls_pk_free( pk );
+Pkparse.c:            mbedtls_pk_free( pk );
+Pkparse.c:            mbedtls_pk_free( pk );
+Pkparse.c:        mbedtls_pem_free( &pem );
+Pkparse.c:            mbedtls_pk_free( pk );
+Pkparse.c:        mbedtls_pem_free( &pem );
+Pkparse.c:            mbedtls_pk_free( pk );
+Pkparse.c:        mbedtls_pem_free( &pem );
+Pkparse.c:            mbedtls_pk_free( pk );
+Pkparse.c:        mbedtls_pem_free( &pem );
+Pkparse.c:    mbedtls_pk_free( pk );
+Pkparse.c:    mbedtls_pk_free( pk );
+Pkparse.c:    mbedtls_pk_free( pk );
+Pkparse.c:    mbedtls_pk_free( pk );
+Pkparse.c:        mbedtls_pem_free( &pem );
+Pkparse.c:    mbedtls_pem_free( &pem );
+Pkwrite.c:#define mbedtls_free       free
+Pk_internal.h (mbedtls):    /** Free the given context */
+Pk_internal.h (mbedtls):    void (*ctx_free_func)( void *ctx );
+Pk_wrap.c:#define mbedtls_free       free
+Pk_wrap.c:static void rsa_free_wrap( void *ctx )
+Pk_wrap.c:    mbedtls_rsa_free( (mbedtls_rsa_context *) ctx );
+Pk_wrap.c:    mbedtls_free( ctx );
+Pk_wrap.c:    rsa_free_wrap,
+Pk_wrap.c:    mbedtls_ecdsa_free( &ecdsa );
+Pk_wrap.c:    mbedtls_ecdsa_free( &ecdsa );
+Pk_wrap.c:static void eckey_free_wrap( void *ctx )
+Pk_wrap.c:    mbedtls_ecp_keypair_free( (mbedtls_ecp_keypair *) ctx );
+Pk_wrap.c:    mbedtls_free( ctx );
+Pk_wrap.c:    eckey_free_wrap,
+Pk_wrap.c:    eckey_free_wrap,        /* Same underlying key structure */
+Pk_wrap.c:static void ecdsa_free_wrap( void *ctx )
+Pk_wrap.c:    mbedtls_ecdsa_free( (mbedtls_ecdsa_context *) ctx );
+Pk_wrap.c:    mbedtls_free( ctx );
+Pk_wrap.c:    ecdsa_free_wrap,
+Pk_wrap.c:static void rsa_alt_free_wrap( void *ctx )
+Pk_wrap.c:    mbedtls_free( ctx );
+Pk_wrap.c:    rsa_alt_free_wrap,
+Platform.c:#if !defined(MBEDTLS_PLATFORM_STD_FREE)
+Platform.c:static void platform_free_uninit( void *ptr )
+Platform.c:#define MBEDTLS_PLATFORM_STD_FREE     platform_free_uninit
+Platform.c:#endif /* !MBEDTLS_PLATFORM_STD_FREE */
+Platform.c:void (*mbedtls_free)( void * )     = MBEDTLS_PLATFORM_STD_FREE;
+Platform.c:int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
+Platform.c:                              void (*free_func)( void * ) )
+Platform.c:    mbedtls_free = free_func;
+Platform.h (mbedtls):#if !defined(MBEDTLS_PLATFORM_STD_FREE)
+Platform.h (mbedtls):#define MBEDTLS_PLATFORM_STD_FREE       free /**< Default free to use */
+Platform.h (mbedtls): * The function pointers for calloc and free
+Platform.h (mbedtls):#if defined(MBEDTLS_PLATFORM_FREE_MACRO) && \
+Platform.h (mbedtls):#define mbedtls_free       MBEDTLS_PLATFORM_FREE_MACRO
+Platform.h (mbedtls):extern void (*mbedtls_free)( void *ptr );
+Platform.h (mbedtls): * \param free_func     the free function implementation
+Platform.h (mbedtls):int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
+Platform.h (mbedtls):                              void (*free_func)( void * ) );
+Platform.h (mbedtls):#endif /* MBEDTLS_PLATFORM_FREE_MACRO && MBEDTLS_PLATFORM_CALLOC_MACRO */
+Platform.h (mbedtls):#define mbedtls_free       free
+Platform.h (mbedtls):#endif /* MBEDTLS_PLATFORM_MEMORY && !MBEDTLS_PLATFORM_{FREE,CALLOC}_MACRO */
+Ripemd160.c:void mbedtls_ripemd160_free( mbedtls_ripemd160_context *ctx )
+Ripemd160.c:    mbedtls_ripemd160_free( &ctx );
+Ripemd160.h (mbedtls):void mbedtls_ripemd160_free( mbedtls_ripemd160_context *ctx );
+Rsa.c:#define mbedtls_free   free
+Rsa.c:    mbedtls_mpi_free( &P1 ); mbedtls_mpi_free( &Q1 ); mbedtls_mpi_free( &H ); mbedtls_mpi_free( &G );
+Rsa.c:        mbedtls_rsa_free( ctx );
+Rsa.c:    mbedtls_mpi_free( &PQ ); mbedtls_mpi_free( &DE ); mbedtls_mpi_free( &P1 ); mbedtls_mpi_free( &Q1 );
+Rsa.c:    mbedtls_mpi_free( &H  ); mbedtls_mpi_free( &I  ); mbedtls_mpi_free( &G  ); mbedtls_mpi_free( &G2 );
+Rsa.c:    mbedtls_mpi_free( &L1 ); mbedtls_mpi_free( &L2 ); mbedtls_mpi_free( &DP ); mbedtls_mpi_free( &DQ );
+Rsa.c:    mbedtls_mpi_free( &QP );
+Rsa.c:    mbedtls_mpi_free( &T );
+Rsa.c:    mbedtls_mpi_free( &T ); mbedtls_mpi_free( &T1 ); mbedtls_mpi_free( &T2 );
+Rsa.c:        mbedtls_md_free( &md_ctx );
+Rsa.c:    mbedtls_md_free( &md_ctx );
+Rsa.c:        mbedtls_md_free( &md_ctx );
+Rsa.c:    mbedtls_md_free( &md_ctx );
+Rsa.c:        mbedtls_md_free( &md_ctx );
+Rsa.c:    mbedtls_md_free( &md_ctx );
+Rsa.c:        mbedtls_free( sig_try );
+Rsa.c:    mbedtls_free( sig_try );
+Rsa.c:    mbedtls_free( verif );
+Rsa.c:        mbedtls_md_free( &md_ctx );
+Rsa.c:        mbedtls_md_free( &md_ctx );
+Rsa.c:        mbedtls_md_free( &md_ctx );
+Rsa.c:    mbedtls_md_free( &md_ctx );
+Rsa.c:        mbedtls_rsa_free( dst );
+Rsa.c: * Free the components of an RSA key
+Rsa.c:void mbedtls_rsa_free( mbedtls_rsa_context *ctx )
+Rsa.c:    mbedtls_mpi_free( &ctx->Vi ); mbedtls_mpi_free( &ctx->Vf );
+Rsa.c:    mbedtls_mpi_free( &ctx->RQ ); mbedtls_mpi_free( &ctx->RP ); mbedtls_mpi_free( &ctx->RN );
+Rsa.c:    mbedtls_mpi_free( &ctx->QP ); mbedtls_mpi_free( &ctx->DQ ); mbedtls_mpi_free( &ctx->DP );
+Rsa.c:    mbedtls_mpi_free( &ctx->Q  ); mbedtls_mpi_free( &ctx->P  ); mbedtls_mpi_free( &ctx->D );
+Rsa.c:    mbedtls_mpi_free( &ctx->E  ); mbedtls_mpi_free( &ctx->N  );
+Rsa.c:    mbedtls_mutex_free( &ctx->mutex );
+Rsa.c:    mbedtls_rsa_free( &rsa );
+Rsa.h (mbedtls): * \brief          Free the components of an RSA key
+Rsa.h (mbedtls): * \param ctx      RSA Context to free
+Rsa.h (mbedtls):void mbedtls_rsa_free( mbedtls_rsa_context *ctx );
+Sha1.c:void mbedtls_sha1_free( mbedtls_sha1_context *ctx )
+Sha1.c:    mbedtls_sha1_free( &ctx );
+Sha1.c:    mbedtls_sha1_free( &ctx );
+Sha1.h (mbedtls):void mbedtls_sha1_free( mbedtls_sha1_context *ctx );
+Sha256.c:void mbedtls_sha256_free( mbedtls_sha256_context *ctx )
+Sha256.c:    mbedtls_sha256_free( &ctx );
+Sha256.c:    mbedtls_sha256_free( &ctx );
+Sha256.h (mbedtls):void mbedtls_sha256_free( mbedtls_sha256_context *ctx );
+Sha512.c:void mbedtls_sha512_free( mbedtls_sha512_context *ctx )
+Sha512.c:    mbedtls_sha512_free( &ctx );
+Sha512.c:    mbedtls_sha512_free( &ctx );
+Sha512.h (mbedtls):void mbedtls_sha512_free( mbedtls_sha512_context *ctx );
+Ssl.h (mbedtls): *                 mbedtls_ssl_free()
+Ssl.h (mbedtls): *                 freed.
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): *                 actual error, but you still need to reset/free the context.
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): *                 becomes unusable, and you should either free it or call
+Ssl.h (mbedtls): * \brief          Free referenced items in an SSL context and clear memory
+Ssl.h (mbedtls):void mbedtls_ssl_free( mbedtls_ssl_context *ssl );
+Ssl.h (mbedtls): *                 mbedtls_ssl_config_defaults() or mbedtls_ssl_config_free().
+Ssl.h (mbedtls): * \brief          Free an SSL configuration context
+Ssl.h (mbedtls):void mbedtls_ssl_config_free( mbedtls_ssl_config *conf );
+Ssl.h (mbedtls): * \brief          Free referenced items in an SSL session including the
+Ssl.h (mbedtls):void mbedtls_ssl_session_free( mbedtls_ssl_session *session );
+Ssl_cache.c:#define mbedtls_free      free
+Ssl_cache.c:                mbedtls_free( session->peer_cert );
+Ssl_cache.c:     * If we're reusing an entry, free its certificate first
+Ssl_cache.c:        mbedtls_free( cur->peer_cert.p );
+Ssl_cache.c:void mbedtls_ssl_cache_free( mbedtls_ssl_cache_context *cache )
+Ssl_cache.c:        mbedtls_ssl_session_free( &prv->session );
+Ssl_cache.c:        mbedtls_free( prv->peer_cert.p );
+Ssl_cache.c:        mbedtls_free( prv );
+Ssl_cache.c:    mbedtls_mutex_free( &cache->mutex );
+Ssl_cache.h (mbedtls): * \brief          Free referenced items in a cache context and clear memory
+Ssl_cache.h (mbedtls):void mbedtls_ssl_cache_free( mbedtls_ssl_cache_context *cache );
+Ssl_cli.c:#define mbedtls_free      free
+Ssl_cli.c:    mbedtls_free( ssl->handshake->ecjpake_cache );
+Ssl_cli.c:    mbedtls_free( ssl->handshake->verify_cookie );
+Ssl_cli.c:            mbedtls_free( ssl->handshake->verify_cookie );
+Ssl_cli.c:            mbedtls_md5_free(  &mbedtls_md5  );
+Ssl_cli.c:            mbedtls_sha1_free( &mbedtls_sha1 );
+Ssl_cli.c:            mbedtls_md_free( &ctx );
+Ssl_cli.c:    mbedtls_free( ssl->session_negotiate->ticket );
+Ssl_cookie.c:#define mbedtls_free      free
+Ssl_cookie.c:void mbedtls_ssl_cookie_free( mbedtls_ssl_cookie_ctx *ctx )
+Ssl_cookie.c:    mbedtls_md_free( &ctx->hmac_ctx );
+Ssl_cookie.h (mbedtls): * \brief          Free cookie context
+Ssl_cookie.h (mbedtls):void mbedtls_ssl_cookie_free( mbedtls_ssl_cookie_ctx *ctx );
+Ssl_internal.h (mbedtls): * \brief           Free referenced items in an SSL transform context and clear
+Ssl_internal.h (mbedtls):void mbedtls_ssl_transform_free( mbedtls_ssl_transform *transform );
+Ssl_internal.h (mbedtls): * \brief           Free referenced items in an SSL handshake context and clear
+Ssl_internal.h (mbedtls):void mbedtls_ssl_handshake_free( mbedtls_ssl_handshake_params *handshake );
+Ssl_srv.c:#define mbedtls_free      free
+Ssl_srv.c:    mbedtls_free( ssl->cli_id );
+Ssl_srv.c:        mbedtls_ssl_session_free( &session );
+Ssl_srv.c:    mbedtls_ssl_session_free( ssl->session_negotiate );
+Ssl_srv.c:    /* Zeroize instead of free as we copied the content */
+Ssl_srv.c:            mbedtls_md5_free(  &mbedtls_md5  );
+Ssl_srv.c:            mbedtls_sha1_free( &mbedtls_sha1 );
+Ssl_srv.c:            mbedtls_md_free( &ctx );
+Ssl_ticket.c:#define mbedtls_free      free
+Ssl_ticket.c:            mbedtls_x509_crt_free( session->peer_cert );
+Ssl_ticket.c:            mbedtls_free( session->peer_cert );
+Ssl_ticket.c: * Free context
+Ssl_ticket.c:void mbedtls_ssl_ticket_free( mbedtls_ssl_ticket_context *ctx )
+Ssl_ticket.c:    mbedtls_cipher_free( &ctx->keys[0].ctx );
+Ssl_ticket.c:    mbedtls_cipher_free( &ctx->keys[1].ctx );
+Ssl_ticket.c:    mbedtls_mutex_free( &ctx->mutex );
+Ssl_ticket.h (mbedtls): *                  or mbedtls_ssl_ticket_free().)
+Ssl_ticket.h (mbedtls): * \brief           Free a context's content and zeroize it.
+Ssl_ticket.h (mbedtls):void mbedtls_ssl_ticket_free( mbedtls_ssl_ticket_context *ctx );
+Ssl_tls.c:#define mbedtls_free      free
+Ssl_tls.c:    mbedtls_ssl_session_free( dst );
+Ssl_tls.c:            mbedtls_free( dst->peer_cert );
+Ssl_tls.c:    mbedtls_md5_free(  &md5  );
+Ssl_tls.c:    mbedtls_sha1_free( &sha1 );
+Ssl_tls.c:    mbedtls_md_free( &md_ctx );
+Ssl_tls.c:    mbedtls_md_free( &md_ctx );
+Ssl_tls.c:    mbedtls_md_free( &md_ctx );
+Ssl_tls.c:    mbedtls_md5_free(  &md5  );
+Ssl_tls.c:    mbedtls_sha1_free( &sha1 );
+Ssl_tls.c:    mbedtls_md5_free(  &md5  );
+Ssl_tls.c:    mbedtls_sha1_free( &sha1 );
+Ssl_tls.c:    mbedtls_sha256_free( &sha256 );
+Ssl_tls.c:    mbedtls_sha512_free( &sha512 );
+Ssl_tls.c:        mbedtls_free( msg );
+Ssl_tls.c: * Free the current flight of handshake messages
+Ssl_tls.c:static void ssl_flight_free( mbedtls_ssl_flight_item *flight )
+Ssl_tls.c:        mbedtls_free( cur->p );
+Ssl_tls.c:        mbedtls_free( cur );
+Ssl_tls.c:    ssl_flight_free( ssl->handshake->flight );
+Ssl_tls.c:    mbedtls_free( ssl->handshake->hs_msg );
+Ssl_tls.c:static void ssl_handshake_wrapup_free_hs_transform( mbedtls_ssl_context *ssl );
+Ssl_tls.c:            ssl_handshake_wrapup_free_hs_transform( ssl );
+Ssl_tls.c:        mbedtls_x509_crt_free( ssl->session_negotiate->peer_cert );
+Ssl_tls.c:        mbedtls_free( ssl->session_negotiate->peer_cert );
+Ssl_tls.c:    mbedtls_md5_free(  &md5  );
+Ssl_tls.c:    mbedtls_sha1_free( &sha1 );
+Ssl_tls.c:    mbedtls_md5_free(  &md5  );
+Ssl_tls.c:    mbedtls_sha1_free( &sha1 );
+Ssl_tls.c:    mbedtls_sha256_free( &sha256 );
+Ssl_tls.c:    mbedtls_sha512_free( &sha512 );
+Ssl_tls.c:static void ssl_handshake_wrapup_free_hs_transform( mbedtls_ssl_context *ssl )
+Ssl_tls.c:    MBEDTLS_SSL_DEBUG_MSG( 3, ( "=> handshake wrapup: final free" ) );
+Ssl_tls.c:     * Free our handshake params
+Ssl_tls.c:    mbedtls_ssl_handshake_free( ssl->handshake );
+Ssl_tls.c:    mbedtls_free( ssl->handshake );
+Ssl_tls.c:     * Free the previous transform and swith in the current one
+Ssl_tls.c:        mbedtls_ssl_transform_free( ssl->transform );
+Ssl_tls.c:        mbedtls_free( ssl->transform );
+Ssl_tls.c:    MBEDTLS_SSL_DEBUG_MSG( 3, ( "<= handshake wrapup: final free" ) );
+Ssl_tls.c:     * Free the previous session and switch in the current one
+Ssl_tls.c:        mbedtls_ssl_session_free( ssl->session );
+Ssl_tls.c:        mbedtls_free( ssl->session );
+Ssl_tls.c:        MBEDTLS_SSL_DEBUG_MSG( 3, ( "skip freeing handshake and transform" ) );
+Ssl_tls.c:        ssl_handshake_wrapup_free_hs_transform( ssl );
+Ssl_tls.c:        mbedtls_ssl_transform_free( ssl->transform_negotiate );
+Ssl_tls.c:        mbedtls_ssl_session_free( ssl->session_negotiate );
+Ssl_tls.c:        mbedtls_ssl_handshake_free( ssl->handshake );
+Ssl_tls.c:     * Either the pointers are now NULL or cleared properly and can be freed.
+Ssl_tls.c:    /* All pointers should exist and can be directly freed without issue */
+Ssl_tls.c:        mbedtls_free( ssl->handshake );
+Ssl_tls.c:        mbedtls_free( ssl->transform_negotiate );
+Ssl_tls.c:        mbedtls_free( ssl->session_negotiate );
+Ssl_tls.c:        mbedtls_free( ssl->in_buf );
+Ssl_tls.c:        mbedtls_ssl_transform_free( ssl->transform );
+Ssl_tls.c:        mbedtls_free( ssl->transform );
+Ssl_tls.c:        mbedtls_ssl_session_free( ssl->session );
+Ssl_tls.c:        mbedtls_free( ssl->session );
+Ssl_tls.c:        mbedtls_free( ssl->cli_id );
+Ssl_tls.c:        mbedtls_free( conf->psk );
+Ssl_tls.c:        mbedtls_free( conf->psk_identity );
+Ssl_tls.c:        mbedtls_free( conf->psk );
+Ssl_tls.c:        mbedtls_free( conf->psk_identity );
+Ssl_tls.c:        mbedtls_free( ssl->handshake->psk );
+Ssl_tls.c:        mbedtls_mpi_free( &conf->dhm_P );
+Ssl_tls.c:        mbedtls_mpi_free( &conf->dhm_G );
+Ssl_tls.c:        mbedtls_mpi_free( &conf->dhm_P );
+Ssl_tls.c:        mbedtls_mpi_free( &conf->dhm_G );
+Ssl_tls.c:void mbedtls_ssl_transform_free( mbedtls_ssl_transform *transform )
+Ssl_tls.c:    mbedtls_cipher_free( &transform->cipher_ctx_enc );
+Ssl_tls.c:    mbedtls_cipher_free( &transform->cipher_ctx_dec );
+Ssl_tls.c:    mbedtls_md_free( &transform->md_ctx_enc );
+Ssl_tls.c:    mbedtls_md_free( &transform->md_ctx_dec );
+Ssl_tls.c:static void ssl_key_cert_free( mbedtls_ssl_key_cert *key_cert )
+Ssl_tls.c:        mbedtls_free( cur );
+Ssl_tls.c:void mbedtls_ssl_handshake_free( mbedtls_ssl_handshake_params *handshake )
+Ssl_tls.c:    mbedtls_md5_free(    &handshake->fin_md5  );
+Ssl_tls.c:    mbedtls_sha1_free(   &handshake->fin_sha1 );
+Ssl_tls.c:    mbedtls_sha256_free(   &handshake->fin_sha256    );
+Ssl_tls.c:    mbedtls_sha512_free(   &handshake->fin_sha512    );
+Ssl_tls.c:    mbedtls_dhm_free( &handshake->dhm_ctx );
+Ssl_tls.c:    mbedtls_ecdh_free( &handshake->ecdh_ctx );
+Ssl_tls.c:    mbedtls_ecjpake_free( &handshake->ecjpake_ctx );
+Ssl_tls.c:    mbedtls_free( handshake->ecjpake_cache );
+Ssl_tls.c:    mbedtls_free( (void *) handshake->curves );
+Ssl_tls.c:        mbedtls_free( handshake->psk );
+Ssl_tls.c:     * Free only the linked list wrapper, not the keys themselves
+Ssl_tls.c:            mbedtls_free( cur );
+Ssl_tls.c:    mbedtls_free( handshake->verify_cookie );
+Ssl_tls.c:    mbedtls_free( handshake->hs_msg );
+Ssl_tls.c:    ssl_flight_free( handshake->flight );
+Ssl_tls.c:void mbedtls_ssl_session_free( mbedtls_ssl_session *session )
+Ssl_tls.c:        mbedtls_x509_crt_free( session->peer_cert );
+Ssl_tls.c:        mbedtls_free( session->peer_cert );
+Ssl_tls.c:    mbedtls_free( session->ticket );
+Ssl_tls.c: * Free an SSL context
+Ssl_tls.c:void mbedtls_ssl_free( mbedtls_ssl_context *ssl )
+Ssl_tls.c:    MBEDTLS_SSL_DEBUG_MSG( 2, ( "=> free" ) );
+Ssl_tls.c:        mbedtls_free( ssl->out_buf );
+Ssl_tls.c:        mbedtls_free( ssl->in_buf );
+Ssl_tls.c:        mbedtls_free( ssl->compress_buf );
+Ssl_tls.c:        mbedtls_ssl_transform_free( ssl->transform );
+Ssl_tls.c:        mbedtls_free( ssl->transform );
+Ssl_tls.c:        mbedtls_ssl_handshake_free( ssl->handshake );
+Ssl_tls.c:        mbedtls_ssl_transform_free( ssl->transform_negotiate );
+Ssl_tls.c:        mbedtls_ssl_session_free( ssl->session_negotiate );
+Ssl_tls.c:        mbedtls_free( ssl->handshake );
+Ssl_tls.c:        mbedtls_free( ssl->transform_negotiate );
+Ssl_tls.c:        mbedtls_free( ssl->session_negotiate );
+Ssl_tls.c:        mbedtls_ssl_session_free( ssl->session );
+Ssl_tls.c:        mbedtls_free( ssl->session );
+Ssl_tls.c:        mbedtls_free( ssl->hostname );
+Ssl_tls.c:    mbedtls_free( ssl->cli_id );
+Ssl_tls.c:    MBEDTLS_SSL_DEBUG_MSG( 2, ( "<= free" ) );
+Ssl_tls.c: * Free mbedtls_ssl_config
+Ssl_tls.c:void mbedtls_ssl_config_free( mbedtls_ssl_config *conf )
+Ssl_tls.c:    mbedtls_mpi_free( &conf->dhm_P );
+Ssl_tls.c:    mbedtls_mpi_free( &conf->dhm_G );
+Ssl_tls.c:        mbedtls_free( conf->psk );
+Ssl_tls.c:        mbedtls_free( conf->psk_identity );
+Ssl_tls.c:    ssl_key_cert_free( conf->key_cert );
+Threading.c:static void threading_mutex_free_pthread( mbedtls_threading_mutex_t *mutex )
+Threading.c:void (*mbedtls_mutex_free)( mbedtls_threading_mutex_t * ) = threading_mutex_free_pthread;
+Threading.c:void (*mbedtls_mutex_free)( mbedtls_threading_mutex_t * ) = threading_mutex_dummy;
+Threading.c:                       void (*mutex_free)( mbedtls_threading_mutex_t * ),
+Threading.c:    mbedtls_mutex_free = mutex_free;
+Threading.c: * Free global mutexes
+Threading.c:void mbedtls_threading_free_alt( void )
+Threading.c:    mbedtls_mutex_free( &mbedtls_threading_readdir_mutex );
+Threading.c:    mbedtls_mutex_free( &mbedtls_threading_gmtime_mutex );
+Threading.h (mbedtls):#define MBEDTLS_ERR_THREADING_MUTEX_ERROR                 -0x001E  /**< Locking / unlocking / free failed with error code. */
+Threading.h (mbedtls): *                  mbedtls_threading_free_alt() must be called once in the main
+Threading.h (mbedtls): * \note            mutex_init() and mutex_free() don't return a status code.
+Threading.h (mbedtls): * \param mutex_free    the free function implementation
+Threading.h (mbedtls):                       void (*mutex_free)( mbedtls_threading_mutex_t * ),
+Threading.h (mbedtls): * \brief               Free global mutexes.
+Threading.h (mbedtls):void mbedtls_threading_free_alt( void );
+Threading.h (mbedtls): * The function pointers for mutex_init, mutex_free, mutex_ and mutex_unlock
+Threading.h (mbedtls):extern void (*mbedtls_mutex_free)( mbedtls_threading_mutex_t *mutex );
+X509.c:#define mbedtls_free      free
+X509.c:            mbedtls_free( pss_opts );
+X509.c:    mbedtls_x509_crt_free( &cacert  );
+X509.c:    mbedtls_x509_crt_free( &clicert );
+X509write_crt.c:void mbedtls_x509write_crt_free( mbedtls_x509write_cert *ctx )
+X509write_crt.c:    mbedtls_mpi_free( &ctx->serial );
+X509write_crt.c:    mbedtls_asn1_free_named_data_list( &ctx->subject );
+X509write_crt.c:    mbedtls_asn1_free_named_data_list( &ctx->issuer );
+X509write_crt.c:    mbedtls_asn1_free_named_data_list( &ctx->extensions );
+X509write_csr.c:void mbedtls_x509write_csr_free( mbedtls_x509write_csr *ctx )
+X509write_csr.c:    mbedtls_asn1_free_named_data_list( &ctx->subject );
+X509write_csr.c:    mbedtls_asn1_free_named_data_list( &ctx->extensions );
+X509_create.c:    mbedtls_asn1_free_named_data_list( head );
+X509_crl.c:#define mbedtls_free       free
+X509_crl.c:            mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:            mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:            mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:        mbedtls_x509_crl_free( crl );
+X509_crl.c:            mbedtls_pem_free( &pem );
+X509_crl.c:            mbedtls_pem_free( &pem );
+X509_crl.c:    mbedtls_free( buf );
+X509_crl.c:void mbedtls_x509_crl_free( mbedtls_x509_crl *crl )
+X509_crl.c:        mbedtls_free( crl_cur->sig_opts );
+X509_crl.c:            mbedtls_free( name_prv );
+X509_crl.c:            mbedtls_free( entry_prv );
+X509_crl.c:            mbedtls_free( crl_cur->raw.p );
+X509_crl.c:            mbedtls_free( crl_prv );
+X509_crl.h (mbedtls): * \param crl      CRL chain to free
+X509_crl.h (mbedtls):void mbedtls_x509_crl_free( mbedtls_x509_crl *crl );
+X509_crt.c:#define mbedtls_free       free
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:            mbedtls_x509_crt_free( crt );
+X509_crt.c:            mbedtls_x509_crt_free( crt );
+X509_crt.c:            mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:        mbedtls_x509_crt_free( crt );
+X509_crt.c:            mbedtls_free( crt );
+X509_crt.c:                mbedtls_pem_free( &pem );
+X509_crt.c:            mbedtls_pem_free( &pem );
+X509_crt.c:    mbedtls_free( buf );
+X509_crt.c:void mbedtls_x509_crt_free( mbedtls_x509_crt *crt )
+X509_crt.c:        mbedtls_pk_free( &cert_cur->pk );
+X509_crt.c:        mbedtls_free( cert_cur->sig_opts );
+X509_crt.c:            mbedtls_free( name_prv );
+X509_crt.c:            mbedtls_free( name_prv );
+X509_crt.c:            mbedtls_free( seq_prv );
+X509_crt.c:            mbedtls_free( seq_prv );
+X509_crt.c:            mbedtls_free( cert_cur->raw.p );
+X509_crt.c:            mbedtls_free( cert_prv );
+X509_crt.h (mbedtls): * \param crt      Certificate chain to free
+X509_crt.h (mbedtls):void mbedtls_x509_crt_free( mbedtls_x509_crt *crt );
+X509_crt.h (mbedtls): * \brief           Free the contents of a CRT write context
+X509_crt.h (mbedtls): * \param ctx       CRT context to free
+X509_crt.h (mbedtls):void mbedtls_x509write_crt_free( mbedtls_x509write_cert *ctx );
+X509_csr.c:#define mbedtls_free       free
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_x509_csr_free( csr );
+X509_csr.c:        mbedtls_pem_free( &pem );
+X509_csr.c:        mbedtls_pem_free( &pem );
+X509_csr.c:    mbedtls_free( buf );
+X509_csr.c:void mbedtls_x509_csr_free( mbedtls_x509_csr *csr )
+X509_csr.c:    mbedtls_pk_free( &csr->pk );
+X509_csr.c:    mbedtls_free( csr->sig_opts );
+X509_csr.c:        mbedtls_free( name_prv );
+X509_csr.c:        mbedtls_free( csr->raw.p );
+X509_csr.h (mbedtls): * \param csr      CSR to free
+X509_csr.h (mbedtls):void mbedtls_x509_csr_free( mbedtls_x509_csr *csr );
+X509_csr.h (mbedtls): * \brief           Free the contents of a CSR context
+X509_csr.h (mbedtls): * \param ctx       CSR context to free
+X509_csr.h (mbedtls):void mbedtls_x509write_csr_free( mbedtls_x509write_csr *ctx );
+Xtea.c:void mbedtls_xtea_free( mbedtls_xtea_context *ctx )
+Xtea.c:    mbedtls_xtea_free( &ctx );
+Xtea.h (mbedtls):void mbedtls_xtea_free( mbedtls_xtea_context *ctx );
+---- "mbedtls/stddef.h" Matches (22 in 22 files) ----
+Certs.h (mbedtls):#include "mbedtls/stddef.h"
+Des.h (mbedtls):#include "mbedtls/stddef.h"
+Entropy.h (mbedtls):#include "mbedtls/stddef.h"
+Entropy_poll.h (mbedtls):#include "mbedtls/stddef.h"
+Error.h (mbedtls):#include "mbedtls/stddef.h"
+Havege.h (mbedtls):#include "mbedtls/stddef.h"
+Md.h (mbedtls):#include "mbedtls/stddef.h"
+Md2.h (mbedtls):#include "mbedtls/stddef.h"
+Md4.h (mbedtls):#include "mbedtls/stddef.h"
+Md5.h (mbedtls):#include "mbedtls/stddef.h"
+Memory_buffer_alloc.h (mbedtls):#include "mbedtls/stddef.h"
+Net.h (mbedtls):#include "mbedtls/stddef.h"
+Oid.h (mbedtls):#include "mbedtls/stddef.h"
+Pem.h (mbedtls):#include "mbedtls/stddef.h"
+Pkcs12.h (mbedtls):#include "mbedtls/stddef.h"
+Pkcs5.h (mbedtls):#include "mbedtls/stddef.h"
+Platform.h (mbedtls):#include "mbedtls/stddef.h"
+Ripemd160.h (mbedtls):#include "mbedtls/stddef.h"
+Sha1.h (mbedtls):#include "mbedtls/stddef.h"
+Sha256.h (mbedtls):#include "mbedtls/stddef.h"
+Sha512.h (mbedtls):#include "mbedtls/stddef.h"
+Xtea.h (mbedtls):#include "mbedtls/stddef.h"
+---- stdint.h" Matches (20 in 20 files) ----
+Aes.h (mbedtls):#include "stdint.h"
+Base64.c:#include "stdint.h"
+Bignum.h (mbedtls):#include "stdint.h"
+Blowfish.h (mbedtls):#include "stdint.h"
+Camellia.h (mbedtls):#include "stdint.h"
+Des.h (mbedtls):#include "stdint.h"
+Gcm.h (mbedtls):#include "stdint.h"
+Md4.h (mbedtls):#include "stdint.h"
+Md5.h (mbedtls):#include "stdint.h"
+Net.c:#include "stdint.h"
+Net.h (mbedtls):#include "stdint.h"
+Padlock.h (mbedtls):#include "stdint.h"
+Pkcs5.h (mbedtls):#include "stdint.h"
+Ripemd160.h (mbedtls):#include "stdint.h"
+Sha1.h (mbedtls):#include "stdint.h"
+Sha256.h (mbedtls):#include "stdint.h"
+Sha512.h (mbedtls):#include "stdint.h"
+Ssl_cli.c:#include "stdint.h"
+Timing.h (mbedtls):#include "stdint.h"
+Xtea.h (mbedtls):#include "stdint.h"
+---- rand Matches (237 in 31 files) ----
+Aesni.c: * We always use registers, so we don't need prefixes for memory operands.
+Aesni.c: * Operand macros are in gas order (src, dst) as opposed to Intel order
+Aesni.h (mbedtls): * \param a        First operand
+Aesni.h (mbedtls): * \param b        Second operand
+Aesni.h (mbedtls): * \note           Both operands and result are bit strings interpreted as
+Bignum.c: * Fill X with size bytes of random.
+Bignum.c:int mbedtls_mpi_fill_random( mbedtls_mpi *X, size_t size,
+Bignum.c:         * pick a random A, 1 < A < |X| - 1
+Bignum.c:        MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( &A, X->n * ciL, f_rng, p_rng ) );
+Bignum.c:            MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( &A, X->n * ciL, f_rng, p_rng ) );
+Bignum.c:    MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( X, n * ciL, f_rng, p_rng ) );
+Bignum.h (mbedtls): * \brief          Fill an MPI X with size bytes of random
+Bignum.h (mbedtls):int mbedtls_mpi_fill_random( mbedtls_mpi *X, size_t size,
+Check_config.h (mbedtls):#include <linux/random.h>extern int rand(void);
+Compat-1.3.h (mbedtls):#if defined MBEDTLS_SSL_AEAD_RANDOM_IV
+Compat-1.3.h (mbedtls):#define POLARSSL_SSL_AEAD_RANDOM_IV MBEDTLS_SSL_AEAD_RANDOM_IV
+Compat-1.3.h (mbedtls):#define POLARSSL_ERR_ECP_RANDOM_FAILED MBEDTLS_ERR_ECP_RANDOM_FAILED
+Compat-1.3.h (mbedtls):#define ctr_drbg_random mbedtls_ctr_drbg_random
+Compat-1.3.h (mbedtls):#define ctr_drbg_random_with_add mbedtls_ctr_drbg_random_with_add
+Compat-1.3.h (mbedtls):#define havege_random mbedtls_havege_random
+Compat-1.3.h (mbedtls):#define hmac_drbg_random mbedtls_hmac_drbg_random
+Compat-1.3.h (mbedtls):#define hmac_drbg_random_with_add mbedtls_hmac_drbg_random_with_add
+Compat-1.3.h (mbedtls):#define mpi_fill_random mbedtls_mpi_fill_random
+Config.h (mbedtls): * standards like the /dev/urandom or Windows CryptoAPI.
+Config.h (mbedtls): * \def MBEDTLS_SSL_AEAD_RANDOM_IV
+Config.h (mbedtls): * Generate a random IV rather than using the record sequence number as a
+Config.h (mbedtls): * Uncomment this macro to always use random IVs with AEAD ciphersuites.
+Config.h (mbedtls)://#define MBEDTLS_SSL_AEAD_RANDOM_IV
+Config.h (mbedtls): * Enable the CTR_DRBG AES-256-based random generator.
+Config.h (mbedtls): * This module provides the CTR_DRBG AES-256 random number generator.
+Config.h (mbedtls): * Enable the HAVEGE random generator.
+Config.h (mbedtls): * Warning: the HAVEGE random generator is not suitable for virtualized
+Config.h (mbedtls): * Warning: the HAVEGE random generator is dependent on timing and specific
+Config.h (mbedtls): *          your applications primary random generator or primary entropy pool
+Config.h (mbedtls): * Uncomment to enable the HAVEGE random generator.
+Config.h (mbedtls): * Enable the HMAC_DRBG random generator.
+Config.h (mbedtls): * Uncomment to enable the HMAC_DRBG random number geerator.
+Config.h (mbedtls): * This module is used by the HAVEGE random number generator.
+Ctr_drbg.c:int mbedtls_ctr_drbg_random_with_add( void *p_rng,
+Ctr_drbg.c:         * Copy random block to destination
+Ctr_drbg.c:int mbedtls_ctr_drbg_random( void *p_rng, unsigned char *output, size_t output_len )
+Ctr_drbg.c:    ret = mbedtls_ctr_drbg_random_with_add( ctx, output, output_len, NULL, 0 );
+Ctr_drbg.c:    if( ( ret = mbedtls_ctr_drbg_random( ctx, buf, MBEDTLS_CTR_DRBG_MAX_INPUT ) ) != 0 )
+Ctr_drbg.c:    CHK( mbedtls_ctr_drbg_random( &ctx, buf, MBEDTLS_CTR_DRBG_BLOCKSIZE ) );
+Ctr_drbg.c:    CHK( mbedtls_ctr_drbg_random( &ctx, buf, MBEDTLS_CTR_DRBG_BLOCKSIZE ) );
+Ctr_drbg.c:    CHK( mbedtls_ctr_drbg_random( &ctx, buf, 16 ) );
+Ctr_drbg.c:    CHK( mbedtls_ctr_drbg_random( &ctx, buf, 16 ) );
+Ctr_drbg.h (mbedtls):#define MBEDTLS_ERR_CTR_DRBG_REQUEST_TOO_BIG              -0x0036  /**< Too many random requested in single call. */
+Ctr_drbg.h (mbedtls):                                      reseed before every random generation)  */
+Ctr_drbg.h (mbedtls): * \brief               CTR_DRBG generate random with additional update input
+Ctr_drbg.h (mbedtls):int mbedtls_ctr_drbg_random_with_add( void *p_rng,
+Ctr_drbg.h (mbedtls): * \brief               CTR_DRBG generate random
+Ctr_drbg.h (mbedtls):int mbedtls_ctr_drbg_random( void *p_rng,
+Dhm.c:        mbedtls_mpi_fill_random( &ctx->X, x_size, f_rng, p_rng );
+Dhm.c:        mbedtls_mpi_fill_random( &ctx->X, x_size, f_rng, p_rng );
+Dhm.c:    /* Vi = random( 2, P-1 ) */
+Dhm.c:        mbedtls_mpi_fill_random( &ctx->Vi, mbedtls_mpi_size( &ctx->P ), f_rng, p_rng );
+Ecdsa.c:                ret = MBEDTLS_ERR_ECP_RANDOM_FAILED;
+Ecdsa.c:         * Generate a random value to blind inv_mod in next step,
+Ecdsa.c:            MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( &t, n_size, f_rng, p_rng ) );
+Ecdsa.c:                return( MBEDTLS_ERR_ECP_RANDOM_FAILED );
+Ecdsa.c:            ret = MBEDTLS_ERR_ECP_RANDOM_FAILED;
+Ecdsa.c:                      mbedtls_hmac_drbg_random, &rng_ctx );
+Ecjpake.c:    MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( &b, 16, f_rng, p_rng ) );
+Ecjpake.c:        mbedtls_printf( "  ECJPAKE test #1 (random handshake): " );
+Ecp.c: * In order to guarantee that, we need to ensure that operands of
+Ecp.c: * Randomize jacobian coordinates:
+Ecp.c: * (X, Y, Z) -> (l^2 X, l^3 Y, l Z) for random l
+Ecp.c:static int ecp_randomize_jac( const mbedtls_ecp_group *grp, mbedtls_ecp_point *pt,
+Ecp.c:        mbedtls_mpi_fill_random( &l, p_size, f_rng, p_rng );
+Ecp.c:            return( MBEDTLS_ERR_ECP_RANDOM_FAILED );
+Ecp.c:    /* Start with a non-zero point and randomize its coordinates */
+Ecp.c:        MBEDTLS_MPI_CHK( ecp_randomize_jac( grp, R, f_rng, p_rng ) );
+Ecp.c: * Randomize projective x/z coordinates:
+Ecp.c: * (X, Z) -> (l X, l Z) for random l
+Ecp.c:static int ecp_randomize_mxz( const mbedtls_ecp_group *grp, mbedtls_ecp_point *P,
+Ecp.c:        mbedtls_mpi_fill_random( &l, p_size, f_rng, p_rng );
+Ecp.c:            return( MBEDTLS_ERR_ECP_RANDOM_FAILED );
+Ecp.c:    /* Randomize coordinates of the starting point */
+Ecp.c:        MBEDTLS_MPI_CHK( ecp_randomize_mxz( grp, &RP, f_rng, p_rng ) );
+Ecp.c:            MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( d, n_size, f_rng, p_rng ) );
+Ecp.c:                return( MBEDTLS_ERR_ECP_RANDOM_FAILED );
+Ecp.c:        "5EA6F389A38B8BC81E767753B15AA5569E1782E30ABE7D25", /* random */
+Ecp.h (mbedtls):#define MBEDTLS_ERR_ECP_RANDOM_FAILED                     -0x4D00  /**< Generation of random value, such as (ephemeral) key, failed. */
+Ecp.h (mbedtls): * \note            If f_rng is not NULL, it is used to randomize intermediate
+Entropy_poll.c:    if( CryptGenRandom( provider, (DWORD) len, output ) == FALSE )
+Entropy_poll.c: * Test for Linux getrandom() support.
+Entropy_poll.c:#if defined(SYS_getrandom)
+Entropy_poll.c:#define HAVE_GETRANDOM
+Entropy_poll.c:static int getrandom_wrapper( void *buf, size_t buflen, unsigned int flags )
+Entropy_poll.c:    return( syscall( SYS_getrandom, buf, buflen, flags ) );
+Entropy_poll.c:static int has_getrandom = -1;
+Entropy_poll.c:#endif /* SYS_getrandom */
+Entropy_poll.c:#if defined(HAVE_GETRANDOM)
+Entropy_poll.c:    if( has_getrandom == -1 )
+Entropy_poll.c:        has_getrandom = ( check_version_3_17_plus() == 0 );
+Entropy_poll.c:    if( has_getrandom )
+Entropy_poll.c:        if( ( ret = getrandom_wrapper( output, len, 0 ) ) < 0 )
+Entropy_poll.c:#endif /* HAVE_GETRANDOM */
+Entropy_poll.c:    file = fopen( "/dev/urandom", "rb" );
+Entropy_poll.c:    if( mbedtls_havege_random( hs, output, len ) != 0 )
+Error.c:        if( use_ret == -(MBEDTLS_ERR_ECP_RANDOM_FAILED) )
+Error.c:            mbedtls_snprintf( buf, buflen, "ECP - Generation of random value, such as (ephemeral) key, failed" );
+Error.c:            mbedtls_snprintf( buf, buflen, "RSA - The random generator failed to generate non-zeros" );
+Error.c:        mbedtls_snprintf( buf, buflen, "CTR_DRBG - Too many random requested in single call" );
+Error.c:        mbedtls_snprintf( buf, buflen, "HMAC_DRBG - Too many random requested in single call" );
+Havege.c: * HAVEGE rand function
+Havege.c:int mbedtls_havege_random( void *p_rng, unsigned char *buf, size_t len )
+Havege.h (mbedtls): * \brief          HAVEGE rand function
+Havege.h (mbedtls):int mbedtls_havege_random( void *p_rng, unsigned char *output, size_t len );
+Hmac_drbg.c: * HMAC_DRBG random function with optional additional data:
+Hmac_drbg.c:int mbedtls_hmac_drbg_random_with_add( void *p_rng,
+Hmac_drbg.c: * HMAC_DRBG random function
+Hmac_drbg.c:int mbedtls_hmac_drbg_random( void *p_rng, unsigned char *output, size_t out_len )
+Hmac_drbg.c:    ret = mbedtls_hmac_drbg_random_with_add( ctx, output, out_len, NULL, 0 );
+Hmac_drbg.c:    if( ( ret = mbedtls_hmac_drbg_random( ctx, buf, sizeof( buf ) ) ) != 0 )
+Hmac_drbg.c:    CHK( mbedtls_hmac_drbg_random( &ctx, buf, OUTPUT_LEN ) );
+Hmac_drbg.c:    CHK( mbedtls_hmac_drbg_random( &ctx, buf, OUTPUT_LEN ) );
+Hmac_drbg.c:    CHK( mbedtls_hmac_drbg_random( &ctx, buf, OUTPUT_LEN ) );
+Hmac_drbg.c:    CHK( mbedtls_hmac_drbg_random( &ctx, buf, OUTPUT_LEN ) );
+Hmac_drbg.h (mbedtls):#define MBEDTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG              -0x0003  /**< Too many random requested in single call. */
+Hmac_drbg.h (mbedtls):                                     reseed before every random generation) */
+Hmac_drbg.h (mbedtls): * \brief               HMAC_DRBG generate random with additional update input
+Hmac_drbg.h (mbedtls):int mbedtls_hmac_drbg_random_with_add( void *p_rng,
+Hmac_drbg.h (mbedtls): * \brief               HMAC_DRBG generate random
+Hmac_drbg.h (mbedtls):int mbedtls_hmac_drbg_random( void *p_rng, unsigned char *output, size_t out_len );
+Pkcs12.h (mbedtls): *                   to produce pseudo-random bits for a particular "purpose".
+Rsa.c:    /* Unblinding value: Vf = random number, invertible mod N */
+Rsa.c:        MBEDTLS_MPI_CHK( mbedtls_mpi_fill_random( &ctx->Vf, ctx->len - 1, f_rng, p_rng ) );
+Rsa.c:    /* Generate a random octet string seed */
+Rsa.c:static int myrand( void *rng_state, unsigned char *output, size_t len )
+Rsa.c:        output[i] = rand();
+Rsa.c:    arc4random_buf( output, len );
+Rsa.c:    if( mbedtls_rsa_pkcs1_encrypt( &rsa, myrand, NULL, MBEDTLS_RSA_PUBLIC, PT_LEN,
+Rsa.c:    if( mbedtls_rsa_pkcs1_decrypt( &rsa, myrand, NULL, MBEDTLS_RSA_PRIVATE, &len,
+Rsa.c:    if( mbedtls_rsa_pkcs1_sign( &rsa, myrand, NULL, MBEDTLS_RSA_PRIVATE, MBEDTLS_MD_SHA1, 0,
+Rsa.h (mbedtls):#define MBEDTLS_ERR_RSA_RNG_FAILED                        -0x4480  /**< The random generator failed to generate non-zeros. */
+Ssl.h (mbedtls):    /** Callback for getting (pseudo-)random numbers                        */
+Ssl.h (mbedtls): * \brief          Set the random number generator callback
+Ssl_cli.c: * Generate random bytes for ClientHello
+Ssl_cli.c:static int ssl_generate_random( mbedtls_ssl_context *ssl )
+Ssl_cli.c:    unsigned char *p = ssl->handshake->randbytes;
+Ssl_cli.c:     * When responding to a verify request, MUST reuse random (RFC 6347 4.2.1)
+Ssl_cli.c:     *    10  .  37   random bytes
+Ssl_cli.c:    if( ( ret = ssl_generate_random( ssl ) ) != 0 )
+Ssl_cli.c:        MBEDTLS_SSL_DEBUG_RET( 1, "ssl_generate_random", ret );
+Ssl_cli.c:    memcpy( p, ssl->handshake->randbytes, 32 );
+Ssl_cli.c:    MBEDTLS_SSL_DEBUG_BUF( 3, "client hello, random bytes", p, 32 );
+Ssl_cli.c:     *  2   . 33    random (maybe including 4 bytes of Unix time)
+Ssl_cli.c:    memcpy( ssl->handshake->randbytes + 32, buf + 2, 32 );
+Ssl_cli.c:    MBEDTLS_SSL_DEBUG_BUF( 3,   "server hello, random bytes", buf + 2, 32 );
+Ssl_cli.c:     *      opaque random[46];
+Ssl_cli.c:             *     MD5(ClientHello.random + ServerHello.random
+Ssl_cli.c:             *     SHA(ClientHello.random + ServerHello.random
+Ssl_cli.c:            mbedtls_md5_update( &mbedtls_md5, ssl->handshake->randbytes, 64 );
+Ssl_cli.c:            mbedtls_sha1_update( &mbedtls_sha1, ssl->handshake->randbytes, 64 );
+Ssl_cli.c:             *     opaque client_random[32];
+Ssl_cli.c:             *     opaque server_random[32];
+Ssl_cli.c:            mbedtls_md_update( &ctx, ssl->handshake->randbytes, 64 );
+Ssl_internal.h (mbedtls):    unsigned char randbytes[64];        /*!<  random bytes            */
+Ssl_srv.c:    memset( ssl->handshake->randbytes, 0, 64 );
+Ssl_srv.c:    memcpy( ssl->handshake->randbytes + 32 - chal_len, p, chal_len );
+Ssl_srv.c:     *     2  .  33   random bytes (starting with 4 bytes of Unix time)
+Ssl_srv.c:     * Save client random (inc. Unix time)
+Ssl_srv.c:    MBEDTLS_SSL_DEBUG_BUF( 3, "client hello, random bytes", buf + 2, 32 );
+Ssl_srv.c:    memcpy( ssl->handshake->randbytes, buf + 2, 32 );
+Ssl_srv.c:     *    10  .  37   random bytes
+Ssl_srv.c:    memcpy( ssl->handshake->randbytes + 32, buf + 6, 32 );
+Ssl_srv.c:    MBEDTLS_SSL_DEBUG_BUF( 3, "server hello, random bytes", buf + 6, 32 );
+Ssl_srv.c:             *     MD5(ClientHello.random + ServerHello.random
+Ssl_srv.c:             *     SHA(ClientHello.random + ServerHello.random
+Ssl_srv.c:            mbedtls_md5_update( &mbedtls_md5, ssl->handshake->randbytes,  64 );
+Ssl_srv.c:            mbedtls_sha1_update( &mbedtls_sha1, ssl->handshake->randbytes,  64 );
+Ssl_srv.c:             *     opaque client_random[32];
+Ssl_srv.c:             *     opaque server_random[32];
+Ssl_srv.c:            mbedtls_md_update( &ctx, ssl->handshake->randbytes, 64 );
+Ssl_ticket.h (mbedtls):    unsigned char name[4];          /*!< random key identifier              */
+Ssl_ticket.h (mbedtls):    /** Callback for getting (pseudo-)random numbers                        */
+Ssl_tls.c:                     const unsigned char *random, size_t rlen,
+Ssl_tls.c:     *      MD5( secret + SHA1( 'A'    + secret + random ) ) +
+Ssl_tls.c:     *      MD5( secret + SHA1( 'BB'   + secret + random ) ) +
+Ssl_tls.c:     *      MD5( secret + SHA1( 'CCC'  + secret + random ) ) +
+Ssl_tls.c:        mbedtls_sha1_update( &sha1, random, rlen );
+Ssl_tls.c:                     const unsigned char *random, size_t rlen,
+Ssl_tls.c:    memcpy( tmp + 20 + nb, random, rlen );
+Ssl_tls.c:     * First compute P_md5(secret,label+random)[0..dlen]
+Ssl_tls.c:     * XOR out with P_sha1(secret,label+random)[0..dlen]
+Ssl_tls.c:                            const unsigned char *random, size_t rlen,
+Ssl_tls.c:    memcpy( tmp + md_len + nb, random, rlen );
+Ssl_tls.c:     * Compute P_<hash>(secret, label + random)[0..dlen]
+Ssl_tls.c:                           const unsigned char *random, size_t rlen,
+Ssl_tls.c:                             label, random, rlen, dstbuf, dlen ) );
+Ssl_tls.c:                           const unsigned char *random, size_t rlen,
+Ssl_tls.c:                             label, random, rlen, dstbuf, dlen ) );
+Ssl_tls.c:     *     MD5( premaster + SHA1( 'A'   + premaster + randbytes ) ) +
+Ssl_tls.c:     *     MD5( premaster + SHA1( 'BB'  + premaster + randbytes ) ) +
+Ssl_tls.c:     *     MD5( premaster + SHA1( 'CCC' + premaster + randbytes ) )
+Ssl_tls.c:     *   master = PRF( premaster, "master secret", randbytes )[0..47]
+Ssl_tls.c:                                  handshake->randbytes, 64,
+Ssl_tls.c:     * Swap the client and server random values.
+Ssl_tls.c:    memcpy( tmp, handshake->randbytes, 64 );
+Ssl_tls.c:    memcpy( handshake->randbytes, tmp + 32, 32 );
+Ssl_tls.c:    memcpy( handshake->randbytes + 32, tmp, 32 );
+Ssl_tls.c:     *      MD5( master + SHA1( 'A'    + master + randbytes ) ) +
+Ssl_tls.c:     *      MD5( master + SHA1( 'BB'   + master + randbytes ) ) +
+Ssl_tls.c:     *      MD5( master + SHA1( 'CCC'  + master + randbytes ) ) +
+Ssl_tls.c:     *      MD5( master + SHA1( 'DDDD' + master + randbytes ) ) +
+Ssl_tls.c:     *    key block = PRF( master, "key expansion", randbytes )
+Ssl_tls.c:                              handshake->randbytes, 64, keyblk, 256 );
+Ssl_tls.c:    MBEDTLS_SSL_DEBUG_BUF( 4, "random bytes", handshake->randbytes, 64 );
+Ssl_tls.c:    mbedtls_zeroize( handshake->randbytes, sizeof( handshake->randbytes ) );
+Ssl_tls.c:#if defined(MBEDTLS_SSL_AEAD_RANDOM_IV)
+Ssl_tls.c:     * 27-58 Random random;                     (ignored)
+Ssl_tls.c:             * OpenSSL sends empty messages to randomize the IV
+Version_features.c:#if defined(MBEDTLS_SSL_AEAD_RANDOM_IV)
+Version_features.c:    "MBEDTLS_SSL_AEAD_RANDOM_IV",
+Version_features.c:#endif /* MBEDTLS_SSL_AEAD_RANDOM_IV */
+X509_crt.c:    mbedtls_x509_crt *grandparent;
+X509_crt.c:    /* Look for a grandparent in trusted CAs */
+X509_crt.c:    for( grandparent = trust_ca;
+X509_crt.c:         grandparent != NULL;
+X509_crt.c:         grandparent = grandparent->next )
+X509_crt.c:        if( x509_crt_check_parent( parent, grandparent,
+X509_crt.c:    if( grandparent != NULL )
+X509_crt.c:        ret = x509_crt_verify_top( parent, grandparent, ca_crl, profile,
+X509_crt.c:        /* Look for a grandparent upwards the chain */
+X509_crt.c:        for( grandparent = parent->next;
+X509_crt.c:             grandparent != NULL;
+X509_crt.c:             grandparent = grandparent->next )
+X509_crt.c:            if( grandparent->max_pathlen > 0 &&
+X509_crt.c:                grandparent->max_pathlen < 2 + path_cnt - self_cnt )
+X509_crt.c:            if( x509_crt_check_parent( parent, grandparent,
+X509_crt.c:        if( grandparent != NULL )
+X509_crt.c:            ret = x509_crt_verify_child( parent, grandparent, trust_ca, ca_crl,
+---- rand( Matches (4 in 3 files) ----
+Check_config.h (mbedtls):#include <linux/random.h>extern int rand(void);
+Config.h (mbedtls):inline int rand(void){	
+Rsa.c:static int myrand( void *rng_state, unsigned char *output, size_t len )
+Rsa.c:        output[i] = rand();

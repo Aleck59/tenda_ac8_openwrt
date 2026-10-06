@@ -1,0 +1,3 @@
+# OpenWrt source the overlay is developed and tested against
+repository=https://github.com/openwrt/openwrt.git
+commit=6e9fd1c3ba6bf486a044ed9d640a77dd50b6cbc2

@@ -1,100 +1,113 @@
 #!/usr/bin/env bash
-# Assemble the OpenWrt 19.07 tree for the Tenda AC8 v1:
-#   - OpenWrt 19.07 and the packages/luci feeds (base.env);
-#   - the rtkmipsel target of the HH71VM port, without its board files;
-#   - the Realtek SDK RTL8367RB driver (rtl8367r/) of the AC10U fork;
-#   - the AC8 files of this repository (target/) and patches/.
+# SPDX-License-Identifier: GPL-2.0-only
 #
-# Usage: scripts/prepare.sh [output-dir]      (default: ./openwrt)
+# Prepare an OpenWrt build tree for the Tenda AC8 v1:
+#   OpenWrt at the pinned commit (configs/openwrt-base.txt)
+#   + this repository's overlay (openwrt/) and patches (patches/openwrt/)
+#   + pinned feeds (configs/feeds.conf, fetched shallow, used as src-link)
+#   + the device configuration (configs/tenda_ac8.config).
+#
+# Environment:
+#   OPENWRT_DIR     build tree (default: build/openwrt)
+#   FEEDS_SRC_DIR   feed checkouts (default: build/feeds)
+#   CONFIG_EXTRA    optional file with extra .config lines
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "$0")/.." && pwd)
-# shellcheck source=../base.env
-. "$repo_root/base.env"
-out=${1:-$repo_root/openwrt}
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OPENWRT_DIR="${OPENWRT_DIR:-$ROOT/build/openwrt}"
+FEEDS_SRC_DIR="${FEEDS_SRC_DIR:-$ROOT/build/feeds}"
 
-if [ -e "$out" ]; then
-	echo "error: $out already exists" >&2
-	exit 1
-fi
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
-# fetch <dir> <url> <commit> [sparse path...]
-fetch() {
-	local dir=$1 url=$2 rev=$3
-	shift 3
-	mkdir -p "$dir"
-	git -C "$dir" init -q
-	git -C "$dir" remote add origin "$url"
-	git -C "$dir" config gc.auto 0
-	if [ $# -gt 0 ]; then
-		git -C "$dir" sparse-checkout set --no-cone "$@"
-		git -C "$dir" fetch -q --depth 1 --filter=blob:none origin "$rev"
-	else
+# shallow checkout of one commit: <dir> <url> <commit>
+git_checkout() {
+	local dir="$1" url="$2" rev="$3"
+
+	if [ ! -d "$dir/.git" ]; then
+		mkdir -p "$dir"
+		git -C "$dir" init -q
+		git -C "$dir" remote add origin "$url"
+	fi
+	git -C "$dir" remote set-url origin "$url"
+	if ! git -C "$dir" cat-file -e "$rev^{commit}" 2>/dev/null; then
 		git -C "$dir" fetch -q --depth 1 origin "$rev"
 	fi
-	git -C "$dir" checkout -q FETCH_HEAD
-	echo "    $url @ $(git -C "$dir" log -1 --format='%h %cs %s')"
+	git -C "$dir" checkout -q --detach -f "$rev"
 }
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+repository=""
+commit=""
+# shellcheck disable=SC1091
+. "$ROOT/configs/openwrt-base.txt"
+[ -n "$repository" ] && [ -n "$commit" ] || {
+	echo "configs/openwrt-base.txt must set repository= and commit=" >&2
+	exit 1
+}
 
-echo "==> Fetching sources"
-fetch "$out" "$OPENWRT_REPO" "$OPENWRT_COMMIT"
-fetch "$out/feeds/packages" "$PACKAGES_REPO" "$PACKAGES_COMMIT"
-fetch "$out/feeds/luci" "$LUCI_REPO" "$LUCI_COMMIT"
-fetch "$tmp/hh71vm" "$HH71VM_REPO" "$HH71VM_COMMIT" \
-	/openwrt-feed/target/linux/rtkmipsel/ \
-	/openwrt-feed/package/network/utils/iwinfo/ \
-	/openwrt-feed/package/system/fstools/ \
-	/openwrt-feed/patches/luci/ \
-	/LICENSE /LICENSING.md
-fetch "$tmp/ac10" "$AC10_REPO" "$AC10_COMMIT" \
-	/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl8367r/
+log "OpenWrt $commit"
+git_checkout "$OPENWRT_DIR" "$repository" "$commit"
+# untracked leftovers of an older overlay; ignored dirs (dl, build_dir,
+# staging_dir, feeds, .config) are kept
+git -C "$OPENWRT_DIR" clean -fdq
 
-# The revision in the banner and LuCI: scripts/getver.sh cannot count
-# commits in a shallow clone.
-echo "tenda-ac8-${OPENWRT_COMMIT:0:10}" > "$out/version"
+log "Overlay"
+cp -a "$ROOT/openwrt/." "$OPENWRT_DIR/"
 
-echo "==> Assembling target/linux/rtkmipsel"
-target=$out/target/linux/rtkmipsel
-cp -a "$tmp/hh71vm/openwrt-feed/target/linux/rtkmipsel" "$target"
-# The HH71VM board: its base-files (modem, USB WAN, LEDs), profile,
-# machine and prebuilt iwpriv are not used on the AC8.
-rm -rf "$target/base-files" "$target/base-files.mk" "$target/rtl8197f/profiles" \
-	"$target/files/arch/mips/rtl8197f/mach-hh71vm.c"
-cp -a "$tmp/ac10/target/linux/rtkmipsel/files/drivers/net/rtl819x/rtl8367r" \
-	"$target/files/drivers/net/rtl819x/"
-# Do not depend on the executable bit of bin2c.pl.
-sed -i -E 's/^(\s*)\$\(obj\)\/bin2c.pl/\1perl $(obj)\/bin2c.pl/' \
-	"$target/files/drivers/net/wireless/realtek/rtl8192cd/Makefile"
-
-# iwinfo: wireless-extensions support for rtl8192cd (LuCI status pages);
-# fstools: no error for an empty overlay on the first boot.
-for pkg in network/utils/iwinfo system/fstools; do
-	mkdir -p "$out/package/$pkg/patches"
-	cp "$tmp/hh71vm/openwrt-feed/package/$pkg/patches/"*.patch "$out/package/$pkg/patches/"
-done
-# LuCI: rtl8192cd encryption capabilities and band detection.
-for p in 100-rtl8192cd-encryption-capabilities.patch 101-wifi-band-fallback-rtl8192cd.patch; do
-	patch -d "$out/feeds/luci" -p1 --forward --no-backup-if-mismatch -s \
-		< "$tmp/hh71vm/openwrt-feed/patches/luci/$p"
+log "Patches"
+for p in "$ROOT"/patches/openwrt/*.patch; do
+	[ -e "$p" ] || continue
+	echo "  $(basename "$p")"
+	git -C "$OPENWRT_DIR" apply --whitespace=nowarn "$p"
 done
 
-echo "==> Adding Tenda AC8 support"
-cp -a "$repo_root/target/." "$out/target/"
-for p in "$repo_root"/patches/*.patch; do
-	echo "    $(basename "$p")"
-	patch -d "$out" -p1 --forward --no-backup-if-mismatch -s < "$p"
-done
+log "Feeds"
+: > "$OPENWRT_DIR/feeds.conf"
+while read -r type name spec; do
+	case "$type" in
+	src-git)
+		url="${spec%^*}"
+		rev="${spec##*^}"
+		[ "$url" != "$rev" ] || { echo "feed $name is not pinned to a commit" >&2; exit 1; }
+		echo "  $name $rev"
+		git_checkout "$FEEDS_SRC_DIR/$name" "$url" "$rev"
+		echo "src-link $name $FEEDS_SRC_DIR/$name" >> "$OPENWRT_DIR/feeds.conf"
+		;;
+	""|\#*)
+		;;
+	*)
+		echo "$type $name $spec" >> "$OPENWRT_DIR/feeds.conf"
+		;;
+	esac
+done < "$ROOT/configs/feeds.conf"
+feeds_log="$OPENWRT_DIR/tmp/prepare-feeds.log"
+mkdir -p "$OPENWRT_DIR/tmp"
+(
+	cd "$OPENWRT_DIR"
+	./scripts/feeds update -a
+	./scripts/feeds install -a
+) > "$feeds_log" 2>&1 || { tail -n 50 "$feeds_log" >&2; exit 1; }
 
-echo "==> Installing feeds"
-cat > "$out/feeds.conf" <<EOT
-src-git packages $PACKAGES_REPO^$PACKAGES_COMMIT
-src-git luci $LUCI_REPO^$LUCI_COMMIT
-EOT
-cd "$out"
-./scripts/feeds update -i > feeds.log 2>&1 || { cat feeds.log; exit 1; }
-./scripts/feeds install -a >> feeds.log 2>&1 || { cat feeds.log; exit 1; }
+log "Configuration"
+cp "$ROOT/configs/tenda_ac8.config" "$OPENWRT_DIR/.config"
+if [ -n "${CONFIG_EXTRA:-}" ]; then
+	cat "$CONFIG_EXTRA" >> "$OPENWRT_DIR/.config"
+fi
+make -C "$OPENWRT_DIR" defconfig > "$OPENWRT_DIR/tmp/prepare-defconfig.log" 2>&1 || {
+	tail -n 50 "$OPENWRT_DIR/tmp/prepare-defconfig.log" >&2
+	exit 1
+}
 
-echo "==> Source tree ready in $out"
+missing=0
+while IFS= read -r line; do
+	case "$line" in
+	CONFIG_*=*)
+		grep -qxF "$line" "$OPENWRT_DIR/.config" || {
+			echo "  dropped by defconfig: $line" >&2
+			missing=1
+		}
+		;;
+	esac
+done < "$ROOT/configs/tenda_ac8.config"
+[ "$missing" = 0 ] || { echo "configuration check failed" >&2; exit 1; }
+
+log "Ready: $OPENWRT_DIR"

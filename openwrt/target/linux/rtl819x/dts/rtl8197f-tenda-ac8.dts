@@ -1,0 +1,238 @@
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+/*
+ * Tenda AC8 v1 (RTL8197FH + RTL8812FR + RTL8367RB-VB, 64 MiB DDR2).
+ *
+ * The stock board carries a 2 MiB SPI-NOR; this tree targets units upgraded
+ * to an 8 MiB chip. Everything below was taken from the stock bootloader
+ * (Realtek v3.4.13) and the stock eCos firmware V02.03.01.78, see
+ * docs/hardware.md in the project repository.
+ */
+
+/dts-v1/;
+
+#include "rtl8197f.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+/ {
+	model = "Tenda AC8 v1";
+	compatible = "tenda,ac8-v1", "realtek,rtl8197f";
+
+	aliases {
+		led-boot = &led_status;
+		led-failsafe = &led_status;
+		led-running = &led_status;
+		led-upgrade = &led_status;
+		label-mac-device = &eth0;
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x04000000>;
+	};
+
+	/*
+	 * SoC GPIO ports E-H (linear GPIO 32..63) of the RTL8197F GPIO block:
+	 * PEFGH_DIR at 0x18003524 (1 = output), PEFGH_DAT at 0x18003528.
+	 * Line N of this controller is SoC GPIO 32 + N. The bootloader already
+	 * muxes every line used here to GPIO function.
+	 */
+	gpio_efgh: gpio@18003528 {
+		compatible = "brcm,bcm6345-gpio";
+		reg = <0x18003528 0x4>, <0x18003524 0x4>;
+		reg-names = "dat", "dirout";
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <32>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/* E3 (GPIO 35), the single front LED (stock "sys_led"/"wps_led") */
+		led_status: led-0 {
+			function = LED_FUNCTION_STATUS;
+			color = <LED_COLOR_ID_WHITE>;
+			gpios = <&gpio_efgh 3 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+		};
+	};
+
+	/*
+	 * E4 (GPIO 36), the WPS/RST button. The ictl cascade is not wired up
+	 * yet, so the button is polled.
+	 */
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <20>;
+
+		button-reset {
+			label = "reset";
+			gpios = <&gpio_efgh 4 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+			debounce-interval = <60>;
+		};
+	};
+
+	/*
+	 * External RTL8367RB-VB (chip id 0x6367) carrying all physical ports,
+	 * managed over bit-banged SMI: MDC = H0 (GPIO 56), MDIO = G7 (GPIO 55).
+	 * Port map from the stock firmware: LAN1 = port 3, LAN2 = port 1,
+	 * LAN3 = port 0, WAN = port 4, port 2 is not wired. Extension
+	 * interface 1 (port 6, RGMII) is the CPU port, programmed by the stock
+	 * firmware as 1000/full with RX delay 2 (600 ps) and no TX delay.
+	 */
+	switch {
+		compatible = "realtek,rtl8365mb";
+		mdc-gpios = <&gpio_efgh 24 GPIO_ACTIVE_HIGH>;
+		mdio-gpios = <&gpio_efgh 23 GPIO_ACTIVE_HIGH>;
+
+		ethernet-ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ethernet-port@0 {
+				reg = <0>;
+				label = "lan3";
+				phy-handle = <&ethphy0>;
+			};
+
+			ethernet-port@1 {
+				reg = <1>;
+				label = "lan2";
+				phy-handle = <&ethphy1>;
+			};
+
+			ethernet-port@3 {
+				reg = <3>;
+				label = "lan1";
+				phy-handle = <&ethphy3>;
+			};
+
+			ethernet-port@4 {
+				reg = <4>;
+				label = "wan";
+				phy-handle = <&ethphy4>;
+			};
+
+			ethernet-port@6 {
+				reg = <6>;
+				ethernet = <&eth0>;
+				phy-mode = "rgmii";
+				rx-internal-delay-ps = <600>;
+				tx-internal-delay-ps = <0>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+		};
+
+		mdio {
+			compatible = "realtek,smi-mdio";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ethphy0: ethernet-phy@0 {
+				reg = <0>;
+			};
+
+			ethphy1: ethernet-phy@1 {
+				reg = <1>;
+			};
+
+			ethphy3: ethernet-phy@3 {
+				reg = <3>;
+			};
+
+			ethphy4: ethernet-phy@4 {
+				reg = <4>;
+			};
+		};
+	};
+};
+
+&spi0 {
+	status = "okay";
+
+	flash@0 {
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "bootloader";
+				reg = <0x00000000 0x0001c000>;
+				read-only;
+			};
+
+			/*
+			 * Broadcom-style NVRAM ("FLSH" header, key=value pairs):
+			 * MAC addresses (et0macaddr, wl0_hwaddr, wl1_hwaddr) and the
+			 * HW_WLAN0_* (5 GHz) / HW_WLAN1_* (2.4 GHz) RF calibration.
+			 */
+			partition@1c000 {
+				label = "factory";
+				reg = <0x0001c000 0x00001000>;
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					factory_nvram: nvram@0 {
+						reg = <0x0 0x1000>;
+					};
+				};
+			};
+
+			partition@1d000 {
+				label = "reserved";
+				reg = <0x0001d000 0x00003000>;
+				read-only;
+			};
+
+			/*
+			 * Realtek "cs6c" image (loader + kernel) followed by the
+			 * squashfs root filesystem; split by the cvimg parser.
+			 */
+			partition@20000 {
+				compatible = "realtek,cvimg";
+				label = "firmware";
+				reg = <0x00020000 0x007e0000>;
+			};
+		};
+	};
+};
+
+&eth0 {
+	realtek,smi-pins = <56 55>;
+};
+
+&wifi2g {
+	nvmem-cells = <&factory_nvram>;
+	nvmem-cell-names = "nvram";
+	status = "okay";
+};
+
+&pcie {
+	pcie@0,0 {
+		reg = <0x0000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		device_type = "pci";
+		ranges;
+
+		wifi@0,0 {
+			compatible = "pci10ec,f812";
+			reg = <0x0000 0 0 0 0>;
+			ieee80211-freq-limit = <5000000 6000000>;
+			nvmem-cells = <&factory_nvram>;
+			nvmem-cell-names = "nvram";
+		};
+	};
+};

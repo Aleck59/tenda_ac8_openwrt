@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Make the Footstrap theme the default LuCI theme when it is installed
+# (LuCI ships mediaurlbase pointing at bootstrap, so the theme's own
+# uci-defaults does not switch over by itself).
+
+[ -d /www/luci-static/footstrap ] || exit 0
+uci -q get luci.themes.Footstrap >/dev/null || uci -q set luci.themes.Footstrap='/luci-static/footstrap'
+uci -q set luci.main.mediaurlbase='/luci-static/footstrap'
+uci -q commit luci
+
+exit 0

@@ -1,0 +1,1 @@
+link TxPowerTrack_AP_8192F.txt

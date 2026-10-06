@@ -1,0 +1,21 @@
+From: OpenWrt Tenda AC8 port
+Subject: [PATCH] wifi-scripts: use the root netdev of Realtek rtl8192cd phys
+
+The vendor rtl8192cd driver creates the wlanN root interface of every
+wiphy itself (virtual device RTKWiFiN) and does not support creating it
+from userspace, so point the default wifi-iface at it.
+
+---
+--- a/package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
++++ b/package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
+@@ -115,6 +115,10 @@
+ set ${si}.disabled='${defaults ? 0 : 1}'
+ 
+ `);
++		/* Realtek rtl8192cd: the driver owns the root netdev of each phy */
++		let rtk = match(phy.path, /^virtual\/RTKWiFi([0-9]+)\/RTKWiFi[0-9]+$/);
++		if (rtk)
++			print(`set ${si}.ifname='wlan${rtk[1]}'\nset ${si}.macaddr='${macaddr}'\n`);
+ 		config[name] = {};
+ 		commit = true;
+ 	}

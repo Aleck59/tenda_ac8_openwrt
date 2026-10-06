@@ -1,0 +1,31 @@
+From: OpenWrt Tenda AC8 port
+Subject: [PATCH] mtd: mtdsplit: add Realtek cvimg firmware parser
+
+Split the firmware partition of Realtek RTL819x boards into the "cs6c"
+boot image (loader + kernel) and the squashfs root filesystem.
+
+---
+--- a/drivers/mtd/mtdsplit/Kconfig
++++ b/drivers/mtd/mtdsplit/Kconfig
+@@ -61,6 +61,11 @@
+ 	depends on MTD_SPLIT_SUPPORT
+ 	select MTD_SPLIT
+ 
++config MTD_SPLIT_CVIMG_FW
++	bool "Realtek cvimg based firmware partition parser"
++	depends on MTD_SPLIT_SUPPORT
++	select MTD_SPLIT
++
+ config MTD_SPLIT_LZMA_FW
+ 	bool "LZMA compressed kernel based firmware partition parser"
+ 	depends on MTD_SPLIT_SUPPORT
+--- a/drivers/mtd/mtdsplit/Makefile
++++ b/drivers/mtd/mtdsplit/Makefile
+@@ -7,6 +7,7 @@
+ obj-$(CONFIG_MTD_SPLIT_SQUASHFS_ROOT) += mtdsplit_squashfs.o
+ obj-$(CONFIG_MTD_SPLIT_UIMAGE_FW) += mtdsplit_uimage.o
+ obj-$(CONFIG_MTD_SPLIT_FIT_FW) += mtdsplit_fit.o
++obj-$(CONFIG_MTD_SPLIT_CVIMG_FW) += mtdsplit_cvimg.o
+ obj-$(CONFIG_MTD_SPLIT_LZMA_FW) += mtdsplit_lzma.o
+ obj-$(CONFIG_MTD_SPLIT_TPLINK_FW) += mtdsplit_tplink.o
+ obj-$(CONFIG_MTD_SPLIT_TRX_FW) += mtdsplit_trx.o

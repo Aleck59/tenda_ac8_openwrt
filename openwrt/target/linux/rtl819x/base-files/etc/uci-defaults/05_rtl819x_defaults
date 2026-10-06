@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+tenda,ac8-v1)
+	# software flow offloading, the RTL8197F hardware NAT path is not
+	# validated on this board
+	uci -q set firewall.@defaults[0].flow_offloading='1'
+	uci -q set firewall.@defaults[0].flow_offloading_hw='0'
+	uci -q commit firewall
+	uci -q set system.@system[0].hostname='OpenWrt-AC8'
+	uci -q set system.@system[0].zonename='Europe/Moscow'
+	uci -q set system.@system[0].timezone='MSK-3'
+	uci -q commit system
+	;;
+esac
+
+exit 0

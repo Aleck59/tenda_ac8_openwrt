@@ -1,207 +1,182 @@
-name: Build OpenWrt 19.07 (Tenda AC8 v1)
+name: Build firmware
 
 on:
-  workflow_dispatch:
-    inputs:
-      extra_packages:
-        description: "Extra packages for the image, space separated"
-        default: ""
-        type: string
-      release:
-        description: "Publish the images as a GitHub release"
-        default: true
-        type: boolean
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/build.yml"
-      - "base.env"
-      - "configs/**"
-      - "target/**"
-      - "patches/**"
-      - "scripts/prepare.sh"
-      - "scripts/configure.sh"
-      - "scripts/make-fullflash.py"
-      - "boot/**"
-
-permissions:
-  contents: write
-  # Delete superseded caches, see "Delete superseded caches".
-  actions: write
+    tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+  workflow_dispatch:
 
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
-env:
-  EXTRA_PACKAGES: ${{ inputs.extra_packages || '' }}
+permissions:
+  contents: read
 
 jobs:
-  build:
-    # OpenWrt 19.07 needs Python 2 and an older host compiler: Ubuntu 22.04
-    # (the build host of the HH71VM port).
-    runs-on: ubuntu-22.04
-    timeout-minutes: 360
+  check:
+    name: Static checks
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Release tag
-        id: tag
-        run: echo "tag=ac8-19.07-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+      - name: Shell syntax
+        run: |
+          set -e
+          for f in scripts/*.sh openwrt/target/linux/rtl819x/base-files/etc/board.d/* \
+                   openwrt/target/linux/rtl819x/base-files/etc/uci-defaults/* \
+                   openwrt/target/linux/rtl819x/base-files/lib/upgrade/platform.sh; do
+            sh -n "$f"
+          done
+          shellcheck -S warning scripts/*.sh
+
+      - name: Python tools
+        run: |
+          python3 -m py_compile scripts/*.py openwrt/target/linux/rtl819x/image/*.py
+          python3 scripts/mkflash.py --help >/dev/null
+          python3 scripts/ac8_nvram.py --help >/dev/null
+
+      - name: Device tree
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq device-tree-compiler cpp >/dev/null
+          cd openwrt/target/linux/rtl819x/dts
+          git clone -q --depth 1 --filter=blob:none --sparse \
+            https://github.com/torvalds/linux.git /tmp/linux
+          git -C /tmp/linux sparse-checkout set include/dt-bindings >/dev/null
+          cpp -nostdinc -undef -x assembler-with-cpp -I. -I/tmp/linux/include \
+            rtl8197f-tenda-ac8.dts | dtc -I dts -O dtb -W no-unit_address_vs_reg -o /tmp/ac8.dtb -
+
+  build:
+    name: Tenda AC8 v1
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
-          sudo docker image prune --all --force >/dev/null 2>&1 || true
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force >/dev/null || true
           df -h /
 
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential flex bison gawk gettext git \
-            libncurses-dev libssl-dev libelf-dev python2 python3 rsync unzip zip \
-            zlib1g-dev file wget curl time subversion swig perl pkg-config \
-            squashfs-tools xz-utils bzip2 patch diffutils libtool autoconf automake
+          sudo apt-get install -y -qq build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget zstd >/dev/null
 
-      - name: Prepare source tree
-        run: ./scripts/prepare.sh "$GITHUB_WORKSPACE/openwrt"
-
-      - name: Configure
-        run: ./scripts/configure.sh openwrt "$EXTRA_PACKAGES"
-
-      # Host tools and the cross toolchain depend only on the pinned tree and
-      # on the target and compiler settings.
-      - name: Cache keys
-        id: cache-keys
-        env:
-          DL_HASH: ${{ hashFiles('base.env', 'scripts/prepare.sh', 'configs/**', 'patches/**') }}
+      - name: Version
+        id: version
         run: |
-          sum=$( { cat base.env
-            grep -E '^CONFIG_(TARGET_BOARD|TARGET_SUBTARGET|TARGET_ARCH_PACKAGES|CPU_TYPE|ARCH|TARGET_OPTIMIZATION|EXTRA_OPTIMIZATION|SOFT_FLOAT|USE_MIPS16|USE_MUSL|USE_GLIBC|BINUTILS_|GCC_|LIBC|TARGET_SUFFIX|TOOLCHAINOPTS|EXTERNAL_TOOLCHAIN)' openwrt/.config
-          } | sha256sum | cut -c1-40)
-          echo "dl=dl19-$DL_HASH" >> "$GITHUB_OUTPUT"
-          echo "toolchain=toolchain19-${{ runner.os }}-$sum" >> "$GITHUB_OUTPUT"
-
-      - name: Cache downloads
-        uses: actions/cache@v4
-        with:
-          path: openwrt/dl
-          key: ${{ steps.cache-keys.outputs.dl }}
-          restore-keys: dl19-
-
-      - name: Cache tools and toolchain
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          # 19.07 keeps the stamp of the host tools in the target staging dir.
-          path: |
-            openwrt/staging_dir/host
-            openwrt/staging_dir/toolchain-*
-            openwrt/staging_dir/target-*/stamp/.tools_compile_*
-          key: ${{ steps.cache-keys.outputs.toolchain }}
-
-      # A fresh checkout makes every source file newer than the cached build
-      # stamps; touch them so make treats the restored tools as up to date.
-      - name: Mark cached tools and toolchain as built
-        if: steps.cache-toolchain.outputs.cache-hit == 'true'
-        working-directory: openwrt
-        run: find staging_dir/host/stamp staging_dir/toolchain-*/stamp staging_dir/target-*/stamp -type f -exec touch {} +
-
-      # Keep only the caches of the current keys (and none of the OpenWrt
-      # 24.10 builds).
-      - name: Delete superseded caches
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DL_KEY: ${{ steps.cache-keys.outputs.dl }}
-          TOOLCHAIN_KEY: ${{ steps.cache-keys.outputs.toolchain }}
-        run: |
-          gh cache list --repo "$GITHUB_REPOSITORY" --limit 100 \
-              --json id,key --jq '.[] | "\(.id) \(.key)"' |
-          while read -r id key; do
-            case "$key" in
-              "$DL_KEY"|"$TOOLCHAIN_KEY") ;;
-              dl*|toolchain*)
-                echo "deleting $key"
-                gh cache delete "$id" --repo "$GITHUB_REPOSITORY" ;;
-            esac
-          done
-
-      - name: Download sources
-        working-directory: openwrt
-        run: make download -j8 || make download -j1 V=s
-
-      - name: Build tools and toolchain
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        working-directory: openwrt
-        run: |
-          echo "CPU cores: $(nproc), RAM: $(free -g | awk '/Mem:/ {print $2}') GiB"
-          make -j"$(nproc)" tools/install toolchain/install || make -j1 V=s tools/install toolchain/install
-
-      - name: Build firmware
-        working-directory: openwrt
-        run: |
-          set -o pipefail
-          make -j"$(nproc)" 2>&1 | tee build.log || make -j1 V=s
-
-      # The release carries what gets written to the router: the full chip
-      # image with the boot loader (from flash.bin), flash.bin itself (for the
-      # boot loader or a programmer, at 0x20000) and sysupgrade.bin for LuCI.
-      - name: Collect images
-        run: |
-          src=openwrt/bin/targets/rtkmipsel/rtl8197f
-          ls -l "$src"
-          mkdir -p out
-          for size in 8m 16m; do
-            fw=$(ls "$src"/*-tenda_ac8-v1-$size-squashfs-flash.bin) ||
-              { echo "::error::no flash image for $size"; exit 1; }
-            cp "$fw" "$src"/*-tenda_ac8-v1-$size-squashfs-sysupgrade.bin out/
-            if [ -f boot/tenda_ac8-v1-boot.bin ]; then
-              full="out/$(basename "${fw%-squashfs-flash.bin}")-fullflash.bin"
-              python3 scripts/make-fullflash.py --boot boot/tenda_ac8-v1-boot.bin \
-                --firmware "$fw" --size "${size^^}" --output "$full"
-              rm -f "$full.layout"
-            else
-              echo "::notice::boot/tenda_ac8-v1-boot.bin is not in the repository, no fullflash image"
-            fi
-          done
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            ver="${GITHUB_REF_NAME}"
+          else
+            ver="$(git describe --tags --always --dirty 2>/dev/null || echo "${GITHUB_SHA::7}")"
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
           {
-            cat docs/release-notes.md
-            echo
-            echo '### SHA-256'
-            echo
-            echo '```'
-            (cd out && sha256sum *.bin)
-            echo '```'
-          } > release-body.md
-          ls -l out
+            echo 'CONFIG_IMAGEOPT=y'
+            echo 'CONFIG_VERSIONOPT=y'
+            echo "CONFIG_VERSION_CODE=\"ac8-$ver\""
+            echo 'CONFIG_VERSION_MANUFACTURER_URL="https://github.com/${{ github.repository }}"'
+            echo 'CONFIG_VERSION_SUPPORT_URL="https://github.com/${{ github.repository }}/issues"'
+          } > "$RUNNER_TEMP/version.config"
+
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: build/openwrt/dl
+          key: dl-${{ hashFiles('configs/*') }}-${{ github.run_id }}
+          restore-keys: |
+            dl-${{ hashFiles('configs/*') }}-
+            dl-
+
+      - name: Prepare OpenWrt tree
+        env:
+          CONFIG_EXTRA: ${{ runner.temp }}/version.config
+        run: ./scripts/prepare.sh
+
+      - name: Build
+        env:
+          SKIP_PREPARE: 1
+        run: ./scripts/build.sh
+
+      - name: Rename images
+        run: |
+          cd out
+          ver='${{ steps.version.outputs.version }}'
+          for f in openwrt-*tenda_ac8-v1*; do
+            mv "$f" "${f/openwrt-rtl819x-rtl8197f-/openwrt-ac8-$ver-}"
+          done
+          sha256sum -- *.bin > sha256sums
+          ls -l
 
       - name: Upload images
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-19.07-tenda-ac8-${{ github.run_number }}
+          name: tenda-ac8-${{ steps.version.outputs.version }}
           path: out/
+          if-no-files-found: error
 
       - name: Upload build logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ github.run_number }}
+          name: build-logs
           path: |
-            openwrt/logs/
-            openwrt/.config
-            openwrt/build.log
+            build/openwrt/logs/
+            build/openwrt/tmp/*.log
           if-no-files-found: ignore
 
-      - name: Publish release
-        if: github.event_name == 'push' || inputs.release
-        uses: softprops/action-gh-release@v2
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: OpenWrt 19.07 для Tenda AC8 v1 (${{ steps.tag.outputs.tag }})
-          prerelease: true
-          body_path: release-body.md
-          files: out/*.bin
+          path: artifacts
+
+      - name: Release notes
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          dir="$(ls -d artifacts/tenda-ac8-*)"
+          {
+            sed -e "s/@VERSION@/$ver/g" -e "s|@REPO@|$GITHUB_REPOSITORY|g" docs/release-notes.md
+            echo
+            echo '### SHA-256'
+            echo '```'
+            cat "$dir/sha256sums"
+            echo '```'
+          } > release-notes.md
+          echo "DIR=$dir" >> "$GITHUB_ENV"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Tenda AC8 OpenWrt ${{ github.ref_name }}
+          body_path: release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            ${{ env.DIR }}/*.bin
+            ${{ env.DIR }}/sha256sums
+            ${{ env.DIR }}/*.manifest
+            ${{ env.DIR }}/config.buildinfo
+            ${{ env.DIR }}/feeds.buildinfo
+            ${{ env.DIR }}/version.buildinfo

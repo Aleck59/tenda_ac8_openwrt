@@ -1,3 +1,5 @@
-/openwrt/
+# local build trees and outputs (scripts/prepare.sh, scripts/build.sh)
+/build/
+/out/
 __pycache__/
 *.pyc

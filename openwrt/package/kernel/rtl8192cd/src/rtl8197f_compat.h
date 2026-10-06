@@ -1,0 +1,18 @@
+#ifndef _RTL8197F_COMPAT_H_
+#define _RTL8197F_COMPAT_H_
+
+#ifdef CONFIG_RTL_8197F_WRT
+#define BSP_WLAN_CONF_ADDR 0
+#define BSP_WLAN_BASE_ADDR 0xb8640000UL
+#define BSP_WLAN_MAC_IRQ 6
+#define BSP_GIMR 0xb8003000UL
+#define BSP_WLAN_MAC_IE (1U << 29)
+#define BSP_IRR3 0xb8003014UL
+#define BSP_WLAN_IRR3_MASK (0xfU << 20)
+#define BSP_WLAN_IRR3_ROUTE (6U << 20)
+#define BSP_UART0_IE (1U << 9)
+#define BSP_UART0_RBR 0xb8147024UL
+#define BSP_UART0_LSR 0xb8147014UL
+#endif
+
+#endif
