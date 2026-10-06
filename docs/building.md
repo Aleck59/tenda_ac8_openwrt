@@ -74,5 +74,10 @@ make -C build/openwrt package/kernel/rtl8192cd/{clean,compile} V=s
   git push origin v1.0.0
   ```
 
+Кэши CI: исходники (`dl/`) и host-инструменты с кросс-тулчейном
+(`staging_dir/host`, `staging_dir/toolchain-*`). Ключ кэша тулчейна — хеш
+`configs/openwrt-base.txt`, `configs/tenda_ac8.config` и описания платформы;
+при совпадении сборка начинается сразу с ядра и пакетов.
+
 Версия попадает в прошивку (`CONFIG_VERSION_CODE`, видна в LuCI и
 `/etc/openwrt_release`).

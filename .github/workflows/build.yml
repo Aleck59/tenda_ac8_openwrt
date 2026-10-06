@@ -125,10 +125,41 @@ jobs:
           CONFIG_EXTRA: ${{ runner.temp }}/version.config
         run: ./scripts/prepare.sh
 
+      # Host tools and the cross toolchain take most of a clean build and
+      # only change with the OpenWrt commit, the target or the config.
+      - name: Restore toolchain cache
+        id: toolchain-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/openwrt/staging_dir/host
+            build/openwrt/staging_dir/toolchain-*
+          key: toolchain-${{ runner.os }}-${{ hashFiles('configs/openwrt-base.txt', 'configs/tenda_ac8.config', 'openwrt/target/linux/rtl819x/Makefile', 'openwrt/target/linux/rtl819x/rtl8197f/target.mk') }}
+
+      - name: Mark the cached toolchain as built
+        if: steps.toolchain-cache.outputs.cache-hit == 'true'
+        run: |
+          # the fresh checkout is newer than the cached stamps; make the
+          # stamps newest again so tools/ and toolchain/ are not rebuilt
+          cd build/openwrt
+          find staging_dir/host/stamp -type f -exec touch {} +
+          sleep 1
+          find staging_dir/toolchain-*/stamp -type f -exec touch {} +
+          ls -a staging_dir/host/stamp staging_dir/toolchain-*/stamp | grep -E 'tools_compile|toolchain_compile'
+
       - name: Build
         env:
           SKIP_PREPARE: 1
         run: ./scripts/build.sh
+
+      - name: Save toolchain cache
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/openwrt/staging_dir/host
+            build/openwrt/staging_dir/toolchain-*
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
 
       - name: Upload images
         uses: actions/upload-artifact@v4
