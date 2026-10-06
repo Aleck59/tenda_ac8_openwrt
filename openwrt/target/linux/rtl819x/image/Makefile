@@ -60,10 +60,10 @@ define Build/loader-kernel
 	rm -rf $@.src
 endef
 
-# $(1): RAM address the bootloader copies the payload to, $(2): flash offset
+# $(1): "<RAM address the bootloader copies the payload to> <flash offset>"
 define Build/cvimg
 	python3 ./cvimg.py --signature cs6c \
-		--start-addr $(1) --burn-addr $(2) "$@" "$@.new"
+		--start-addr $(word 1,$(1)) --burn-addr $(word 2,$(1)) "$@" "$@.new"
 	mv "$@.new" "$@"
 endef
 

@@ -35,6 +35,7 @@ into `build/openwrt` by hand, then:
 ```sh
 for f in scripts/*.sh; do sh -n "$f"; done; shellcheck -S warning scripts/*.sh
 python3 -m py_compile scripts/*.py openwrt/target/linux/rtl819x/image/*.py
+python3 tests/test_tools.py         # cvimg / mkflash / NVRAM parser
 ```
 
 Compile the DTS standalone (needs kernel `include/`):

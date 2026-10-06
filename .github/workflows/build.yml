@@ -44,6 +44,7 @@ jobs:
           python3 -m py_compile scripts/*.py openwrt/target/linux/rtl819x/image/*.py
           python3 scripts/mkflash.py --help >/dev/null
           python3 scripts/ac8_nvram.py --help >/dev/null
+          python3 tests/test_tools.py -v
 
       - name: Device tree
         run: |
