@@ -28,8 +28,14 @@ rtl819x_setup_macs()
 	tenda,ac8-v1)
 		# stock firmware uses et0macaddr for both LAN and WAN
 		lan_mac=$(mtd_get_mac_ascii factory et0macaddr)
+		if [ -n "$lan_mac" ]; then
+			label_mac=$lan_mac
+		else
+			# reference factory block without MACs (release full image):
+			# a random locally administered address, kept in the config
+			lan_mac=$(macaddr_random)
+		fi
 		wan_mac=$lan_mac
-		label_mac=$lan_mac
 		;;
 	esac
 

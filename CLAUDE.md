@@ -12,9 +12,9 @@ from `configs/feeds.conf` and applies `configs/tenda_ac8.config`.
   commit messages in English.
 - Everything is pinned (OpenWrt commit, feed commits). Bump pins deliberately,
   in a separate commit, after a full build.
-- Never write to or erase flash below 0x20000 (bootloader, factory NVRAM at
-  0x1c000): it holds per-device MACs and Wi-Fi calibration. Tools and images
-  must keep it read-only.
+- OpenWrt never writes flash below 0x20000 (bootloader, factory NVRAM at
+  0x1c000): it holds per-device MACs and Wi-Fi calibration. Only the
+  programmer image carries this area; never commit a unit's own factory data.
 - Hardware facts come from the stock bootloader/eCos; docs/hardware.md is the
   reference. Keep it in sync with the DTS, board.d and driver when changing
   any of them.
@@ -29,6 +29,9 @@ from `configs/feeds.conf` and applies `configs/tenda_ac8.config`.
   drivers, `dts/rtl8197f-tenda-ac8.dts`, `image/` (cvimg header, two-stage
   lzma-loader), `base-files/` (network, Wi-Fi defaults, sysupgrade).
 - `openwrt/package/kernel/rtl8192cd/` Realtek Wi-Fi driver (8197F + 8812F).
+- `boot/` bootloader and reference factory block (calibration only, no MACs,
+  serials or WPS PIN: the repository is public) for the release
+  `*-full-8m.bin`; regenerate with `scripts/ac8_boot.py <dump> -o boot`.
 - `scripts/` prepare/build, `mkflash.py` (programmer image), `ac8_nvram.py`.
 - `.github/workflows/build.yml` CI: checks + build on push/PR, release on `v*`.
 

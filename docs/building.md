@@ -10,6 +10,7 @@
 | `openwrt/target/linux/rtl819x/` | платформа RTL8197F: патчи ядра 6.18, драйверы Ethernet/PCIe, DTS AC8, рецепт образа, base-files |
 | `openwrt/package/kernel/rtl8192cd/` | драйвер Wi‑Fi Realtek (RTL8197F + RTL8812F) |
 | `patches/openwrt/` | небольшие правки ядра OpenWrt (wifi-scripts) |
+| `boot/` | загрузчик и эталонный заводской блок для образа программатора `*-full-8m.bin` ([boot/README.md](../boot/README.md)) |
 | `scripts/` | подготовка дерева, сборка, утилиты для дампа |
 
 ## Локально
@@ -23,7 +24,7 @@ sudo apt install build-essential clang flex bison g++ gawk gcc-multilib \
 ```
 
 ```sh
-./scripts/build.sh          # prepare + download + make, образы в out/
+./scripts/build.sh          # prepare + download + make, образы в out/ (+ full-8m)
 ```
 
 `scripts/prepare.sh` скачивает OpenWrt на закреплённом коммите в

@@ -74,5 +74,47 @@ class Tools(unittest.TestCase):
             mkflash.check_cvimg(bytes(bad))
 
 
+
+class BootArea(unittest.TestCase):
+    """The committed boot files must stay shareable and well-formed."""
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "boot/bootloader.bin"), "rb") as f:
+            self.boot = f.read()
+        with open(os.path.join(ROOT, "boot/factory-reference.bin"), "rb") as f:
+            self.factory = f.read()
+
+    def test_sizes(self):
+        self.assertEqual(len(self.boot), 0x1C000)
+        self.assertEqual(len(self.factory), 0x4000)
+
+    def test_no_device_data(self):
+        nv = ac8_nvram.parse_nvram(self.factory[:0x1000])
+        self.assertTrue(all(k == "BOARD_NAME" or k.startswith("HW_") for k in nv), nv.keys())
+        self.assertTrue(any(k.startswith("HW_WLAN0_") for k in nv))
+        self.assertTrue(any(k.startswith("HW_WLAN1_") for k in nv))
+        for blob in (self.boot, self.factory):
+            self.assertNotIn(b"macaddr=", blob)
+            self.assertNotIn(b"hwaddr=", blob)
+            self.assertNotIn(b"wps_device_pin", blob)
+
+    def test_full_image(self):
+        fw = cvimg.build(b"\x01" * 512, b"cs6c", 0x80A00000, 0x20000)
+        with tempfile.TemporaryDirectory() as d:
+            src, out = os.path.join(d, "fw.bin"), os.path.join(d, "full.bin")
+            with open(src, "wb") as f:
+                f.write(fw)
+            subprocess.run([sys.executable, os.path.join(ROOT, "scripts/mkflash.py"),
+                            "--bootloader", os.path.join(ROOT, "boot/bootloader.bin"),
+                            "--factory", os.path.join(ROOT, "boot/factory-reference.bin"),
+                            "--firmware", src, "-o", out],
+                           check=True, stdout=subprocess.DEVNULL)
+            with open(out, "rb") as f:
+                img = f.read()
+        self.assertEqual(img[:0x1C000], self.boot)
+        self.assertEqual(img[0x1C000:0x20000], self.factory)
+        self.assertEqual(img[0x20000:0x20000 + len(fw)], fw)
+
+
 if __name__ == "__main__":
     unittest.main()

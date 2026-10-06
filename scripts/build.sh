@@ -39,5 +39,19 @@ for f in config.buildinfo feeds.buildinfo version.buildinfo; do
 	[ -f "$bin/$f" ] && cp "$bin/$f" "$OUT_DIR/$f"
 done
 cp "$bin"/*.manifest "$OUT_DIR"/ 2>/dev/null || true
+
+# full 8 MiB image for a flash programmer: bootloader + reference factory
+# block (calibration only, no per-device data) + firmware
+if [ -f "$ROOT/boot/bootloader.bin" ] && [ -f "$ROOT/boot/factory-reference.bin" ]; then
+	log "Programmer image"
+	for sys in "$OUT_DIR"/*-squashfs-sysupgrade.bin; do
+		python3 "$ROOT/scripts/mkflash.py" \
+			--bootloader "$ROOT/boot/bootloader.bin" \
+			--factory "$ROOT/boot/factory-reference.bin" \
+			--firmware "$sys" \
+			-o "${sys%-squashfs-sysupgrade.bin}-full-8m.bin"
+	done
+fi
+
 (cd "$OUT_DIR" && sha256sum -- * > sha256sums)
 ls -l "$OUT_DIR"

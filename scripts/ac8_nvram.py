@@ -35,11 +35,26 @@ def parse_nvram(blob: bytes) -> dict:
     return items
 
 
+def build_nvram(items: dict, size: int = NVRAM_SIZE) -> bytes:
+    """Serialize key=value pairs into a FLSH block (zero padded to size).
+
+    The CRC byte of the header is left 0: OpenWrt does not check it, and the
+    exact checksum variant of the stock firmware is not known.
+    """
+    body = b"".join(("%s=%s" % (k, v)).encode("latin-1") + b"\0" for k, v in items.items())
+    body += b"\0"
+    total = (HDR_LEN + len(body) + 3) & ~3
+    if total > size:
+        raise ValueError("NVRAM content does not fit in %d bytes" % size)
+    hdr = b"FLSH" + struct.pack("<IIII", total, 0x100, 0, 0)
+    return (hdr + body).ljust(size, b"\0")
+
+
 def load_block(path: str) -> bytes:
     with open(path, "rb") as f:
         data = f.read()
-    if len(data) == NVRAM_SIZE and data[:4] == b"FLSH":
-        return data
+    if data[:4] == b"FLSH":            # bare NVRAM block / factory area
+        return data[:NVRAM_SIZE]
     if len(data) < NVRAM_OFFSET + NVRAM_SIZE:
         raise ValueError("%s is too small for a flash dump" % path)
     return data[NVRAM_OFFSET:NVRAM_OFFSET + NVRAM_SIZE]
@@ -75,7 +90,7 @@ def summary(nv: dict) -> list:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("dump", help="programmer dump (2 or 8 MiB) or the 4 KiB NVRAM block")
+    ap.add_argument("dump", help="programmer dump (2 or 8 MiB) or a factory NVRAM block")
     ap.add_argument("--json", action="store_true", help="print all keys as JSON")
     ap.add_argument("--all", action="store_true", help="print all keys")
     args = ap.parse_args()

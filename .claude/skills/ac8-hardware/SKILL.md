@@ -11,6 +11,8 @@ and eCos V02.03.01.78). Keep code and doc in sync.
 | Fact | Implemented in |
 |---|---|
 | Flash map (bootloader 0x0, factory NVRAM 0x1c000, firmware 0x20000) | `dts/rtl8197f-tenda-ac8.dts` partitions, `scripts/mkflash.py` |
+| Shareable boot area for the programmer image | `boot/` (from `scripts/ac8_boot.py`), `scripts/build.sh` |
+| No MACs in the factory block | random MAC fallback in `02_network` and the driver loader |
 | Boot image: `cs6c` header, BE fields, 16-bit BE sum == 0, load addr | `image/cvimg.py`, `image/Makefile` (`LOADER_ENTRY`), `files/drivers/mtd/mtdsplit/mtdsplit_cvimg.c`, `base-files/lib/upgrade/platform.sh` |
 | TFTP `nfjrom` RAM boot at 0x80a00000 | `KERNEL_INITRAMFS` + two-stage loader (`IMAGE_COPY=1`, stage 2 at 0x82000000) |
 | LED GPIO 35 (E3, active low), button GPIO 36 (E4, active low) | DTS `gpio_efgh` lines 3 and 4 |

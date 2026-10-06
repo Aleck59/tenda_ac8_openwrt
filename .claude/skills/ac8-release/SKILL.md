@@ -23,6 +23,7 @@ description: Cut a Tenda AC8 firmware release (version tag, CI build, GitHub Rel
    `openwrt-ac8-<tag>-rtl819x-rtl8197f-tenda_ac8-v1-*.bin`, and creates the release from
    `docs/release-notes.md` (`@VERSION@`, `@REPO@` substituted) plus
    `sha256sums`, the package manifest and `*.buildinfo`.
-5. Check the release page: sysupgrade + initramfs-nfjrom images, sha256sums.
+5. Check the release page: full-8m (programmer), sysupgrade and
+   initramfs-nfjrom images, sha256sums.
 
 Never move or delete a published tag; fix forward with a new patch version.

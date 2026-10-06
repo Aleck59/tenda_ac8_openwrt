@@ -1310,11 +1310,15 @@ int realtek_load_flash_calibration(struct rtl8192cd_priv *priv)
 		rf->dot11RFType = val;
 
 	v = flsh_get(&nv, NULL, macvar);
-	if (v && mac_pton(v, mac) && is_valid_ether_addr(mac)) {
-		ether_addr_copy(priv->pmib->dot11OperationEntry.hwaddr, mac);
-		ether_addr_copy(priv->pmib->dot11Bss.bssid, mac);
-		ether_addr_copy(priv->rtk->root_mac, mac);
+	if (!v || !mac_pton(v, mac) || !is_valid_ether_addr(mac)) {
+		/* factory block without MACs: avoid the fixed vendor fallback
+		 * address, the wireless config keeps the one seen at first boot */
+		eth_random_addr(mac);
+		pr_info("rtl8192cd: no %s in the factory NVRAM, using a random MAC\n", macvar);
 	}
+	ether_addr_copy(priv->pmib->dot11OperationEntry.hwaddr, mac);
+	ether_addr_copy(priv->pmib->dot11Bss.bssid, mac);
+	ether_addr_copy(priv->rtk->root_mac, mac);
 
 	pr_info("rtl8192cd: %s calibration from factory NVRAM (%s*, mac=%pM xcap=0x%x ther=0x%x tssi=%u)\n",
 		is_5g ? "RTL8812F 5 GHz" : "RTL8197F 2.4 GHz", prefix,
