@@ -7,8 +7,8 @@
 
 | Файл | Для чего |
 |---|---|
-| `openwrt-ac8-<версия>-tenda_ac8-v1-squashfs-sysupgrade.bin` | основной образ: программатор (через `mkflash.py`), обновление из OpenWrt |
-| `openwrt-ac8-<версия>-tenda_ac8-v1-initramfs-nfjrom.bin` | запуск OpenWrt из ОЗУ через TFTP загрузчика (восстановление, первая установка без программатора) |
+| `openwrt-ac8-<версия>-rtl819x-rtl8197f-tenda_ac8-v1-squashfs-sysupgrade.bin` | основной образ: программатор (через `mkflash.py`), обновление из OpenWrt |
+| `openwrt-ac8-<версия>-rtl819x-rtl8197f-tenda_ac8-v1-initramfs-nfjrom.bin` | запуск OpenWrt из ОЗУ через TFTP загрузчика (восстановление, первая установка без программатора) |
 | `sha256sums` | контрольные суммы |
 
 ## 0. Сохраните заводские данные
@@ -30,7 +30,7 @@ python3 scripts/ac8_nvram.py ac8_dump.bin
 
    ```sh
    python3 scripts/mkflash.py --dump ac8_dump.bin \
-       --firmware openwrt-ac8-<версия>-tenda_ac8-v1-squashfs-sysupgrade.bin \
+       --firmware openwrt-ac8-<версия>-rtl819x-rtl8197f-tenda_ac8-v1-squashfs-sysupgrade.bin \
        -o ac8-openwrt-full-8m.bin
    ```
 
@@ -60,7 +60,7 @@ python3 scripts/ac8_nvram.py ac8_dump.bin
 
    ```sh
    tftp -m binary 192.168.0.1 -c put \
-       openwrt-ac8-<версия>-tenda_ac8-v1-initramfs-nfjrom.bin nfjrom
+       openwrt-ac8-<версия>-rtl819x-rtl8197f-tenda_ac8-v1-initramfs-nfjrom.bin nfjrom
    ```
 
    (Windows: `tftp -i 192.168.0.1 PUT openwrt-...-initramfs-nfjrom.bin nfjrom`.)

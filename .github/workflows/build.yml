@@ -91,6 +91,8 @@ jobs:
             echo 'CONFIG_IMAGEOPT=y'
             echo 'CONFIG_VERSIONOPT=y'
             echo "CONFIG_VERSION_CODE=\"ac8-$ver\""
+            echo '# CONFIG_VERSION_FILENAMES is not set'
+            echo 'CONFIG_VERSION_CODE_FILENAMES=y'
             echo 'CONFIG_VERSION_MANUFACTURER_URL="https://github.com/${{ github.repository }}"'
             echo 'CONFIG_VERSION_SUPPORT_URL="https://github.com/${{ github.repository }}/issues"'
           } > "$RUNNER_TEMP/version.config"
@@ -113,16 +115,6 @@ jobs:
         env:
           SKIP_PREPARE: 1
         run: ./scripts/build.sh
-
-      - name: Rename images
-        run: |
-          cd out
-          ver='${{ steps.version.outputs.version }}'
-          for f in openwrt-*tenda_ac8-v1*; do
-            mv "$f" "${f/openwrt-rtl819x-rtl8197f-/openwrt-ac8-$ver-}"
-          done
-          sha256sum -- *.bin > sha256sums
-          ls -l
 
       - name: Upload images
         uses: actions/upload-artifact@v4

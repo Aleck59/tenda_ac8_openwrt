@@ -16,8 +16,9 @@ description: Cut a Tenda AC8 firmware release (version tag, CI build, GitHub Rel
    git push origin v1.2.0
    ```
 
-4. The workflow builds with `CONFIG_VERSION_CODE="ac8-<tag>"`, renames images
-   to `openwrt-ac8-<tag>-tenda_ac8-v1-*.bin` and creates the release from
+4. The workflow builds with `CONFIG_VERSION_CODE="ac8-<tag>"` (and
+   `VERSION_CODE_FILENAMES`), so images are named
+   `openwrt-ac8-<tag>-rtl819x-rtl8197f-tenda_ac8-v1-*.bin`, and creates the release from
    `docs/release-notes.md` (`@VERSION@`, `@REPO@` substituted) plus
    `sha256sums`, the package manifest and `*.buildinfo`.
 5. Check the release page: sysupgrade + initramfs-nfjrom images, sha256sums.
