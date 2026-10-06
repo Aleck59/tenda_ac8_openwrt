@@ -84,6 +84,8 @@ define Device/tenda_ac8-v1
   KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma | loader-kernel -initramfs
   KERNEL_INITRAMFS_SUFFIX := -nfjrom.bin
   DEVICE_PACKAGES := kmod-rtl8192cd kmod-gpio-button-hotplug
+  # board name of the earlier experimental builds of this repository
+  SUPPORTED_DEVICES += tenda,ac8-v1-8m
   IMAGES := sysupgrade.bin
   IMAGE/sysupgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
 	append-rootfs | pad-rootfs | check-size | append-metadata
