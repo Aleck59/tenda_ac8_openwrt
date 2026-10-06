@@ -14,10 +14,15 @@ on:
       - 'docs/**'
       - '.claude/**'
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release tag to create, e.g. v1.0.0 or v1.1.0-rc1 (empty: build only)'
+        required: false
+        default: ''
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.release }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.release }}
 
 permissions:
   contents: read
@@ -61,6 +66,8 @@ jobs:
     needs: check
     runs-on: ubuntu-24.04
     timeout-minutes: 340
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,8 +87,14 @@ jobs:
 
       - name: Version
         id: version
+        env:
+          RELEASE: ${{ inputs.release }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [ -n "$RELEASE" ]; then
+            [[ "$RELEASE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || {
+              echo "::error::release must look like v1.2.3 or v1.2.3-rc1"; exit 1; }
+            ver="$RELEASE"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             ver="${GITHUB_REF_NAME}"
           else
             ver="$(git describe --tags --always --dirty 2>/dev/null || echo "${GITHUB_SHA::7}")"
@@ -136,7 +149,7 @@ jobs:
   release:
     name: Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -148,8 +161,10 @@ jobs:
           path: artifacts
 
       - name: Release notes
+        env:
+          VER: ${{ needs.build.outputs.version }}
         run: |
-          ver="${GITHUB_REF_NAME}"
+          ver="$VER"
           dir="$(ls -d artifacts/tenda-ac8-*)"
           {
             sed -e "s/@VERSION@/$ver/g" -e "s|@REPO@|$GITHUB_REPOSITORY|g" docs/release-notes.md
@@ -163,9 +178,11 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: Tenda AC8 OpenWrt ${{ github.ref_name }}
+          tag_name: ${{ needs.build.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Tenda AC8 OpenWrt ${{ needs.build.outputs.version }}
           body_path: release-notes.md
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
           files: |
             ${{ env.DIR }}/*.bin
             ${{ env.DIR }}/sha256sums

@@ -58,16 +58,20 @@ make -C build/openwrt package/kernel/rtl8192cd/{clean,compile} V=s
 * **push в `main`, pull request, ручной запуск** — статические проверки
   (shell, python, компиляция DTS) и полная сборка; образы прикладываются к
   запуску как artifact.
-* **тег `vX.Y.Z`** — то же самое плюс GitHub Release с образами, `sha256sums`,
+* **тег `vX.Y.Z`** или ручной запуск с параметром `release` — то же самое плюс GitHub Release с образами, `sha256sums`,
   манифестом пакетов и `*.buildinfo`. Тег с дефисом (`v1.1.0-rc1`) публикуется
   как pre-release.
 
-Выпуск версии:
+Выпуск версии — любым из двух способов:
 
-```sh
-git tag -a v1.0.0 -m "Tenda AC8 OpenWrt v1.0.0"
-git push origin v1.0.0
-```
+* **Actions → Build firmware → Run workflow**, поле `release` = `v1.0.0`
+  (ветка `main`): workflow соберёт прошивку, создаст тег и релиз;
+* или тегом из git:
+
+  ```sh
+  git tag -a v1.0.0 -m "Tenda AC8 OpenWrt v1.0.0"
+  git push origin v1.0.0
+  ```
 
 Версия попадает в прошивку (`CONFIG_VERSION_CODE`, видна в LuCI и
 `/etc/openwrt_release`).

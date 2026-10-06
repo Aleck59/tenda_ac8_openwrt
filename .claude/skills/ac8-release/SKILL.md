@@ -9,7 +9,9 @@ description: Cut a Tenda AC8 firmware release (version tag, CI build, GitHub Rel
    current (`docs/install.md`, `README.md` status section).
 2. Pick the version: `vMAJOR.MINOR.PATCH`; a hyphen suffix (`v1.2.0-rc1`)
    becomes a pre-release.
-3. Tag and push:
+3. Either dispatch the workflow on `main` with the `release` input
+   (`v1.2.0`) — it creates the tag and the release itself (use this from
+   sessions that may only push branches) — or tag and push:
 
    ```sh
    git tag -a v1.2.0 -m "Tenda AC8 OpenWrt v1.2.0"
